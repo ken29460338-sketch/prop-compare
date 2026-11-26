@@ -91,7 +91,7 @@ a{color:var(--brick)}
 .hdl svg{width:18px;height:18px}
 .no{font-family:"Schibsted Grotesk",sans-serif;font-weight:700;font-size:20px;text-align:center}
 .ti .nm{font-weight:700;font-size:15px;line-height:1.35;margin-bottom:4px}
-.ti .f{display:grid;grid-template-columns:5.5em minmax(0,1fr);gap:6px}
+.ti .f{display:grid;grid-template-columns:6.5em minmax(0,1fr);gap:6px}
 .ti input{font-size:15px;padding:6px 8px}
 .ti .side{display:flex;flex-direction:column;gap:4px;align-items:flex-end}
 .ti .side label{font-size:12px;color:var(--mute);display:flex;gap:4px;align-items:center;white-space:nowrap}
@@ -573,7 +573,7 @@ function renderTour(){
       <div>
         <div class="nm">${esc(p.title || p.code || '未命名物件')}</div>
         <div class="f">
-          <input class="n" data-t="tourTime" value="${esc(p.tourTime||'')}" placeholder="時間 10:00" aria-label="帶看時間">
+          <input class="n" data-t="tourTime" value="${esc(p.tourTime||'')}" placeholder="時間" aria-label="帶看時間">
           <input data-t="tourAddr" value="${esc(tAddr(p))}" placeholder="詳細地址（例：台中市南區忠明南路 123 號）" aria-label="詳細地址">
         </div>
       </div>
