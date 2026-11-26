@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>物件比較分析</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Schibsted+Grotesk:wght@500;700&display=swap">
+<style>
+/* VOICE: a working agent's desk tool — direct, exact, no decoration.
+   IDEA: the ruled comparison sheet an agent hands a buyer across the table.
+   PICTURE: the big editable comparison table itself, verdict in the margin.
+   COLOUR and TYPE: stone ground, black ink, brick accent for the best unit price; Schibsted Grotesk numbers + Noto Sans TC.
+   LAYOUT: paste box → summary strip → ruled table → bars → report & export. */
+:root{color-scheme:light dark;
+--bg:light-dark(#e7e4df,#171513);--panel:light-dark(#ffffff,#211e1b);--ink:light-dark(#141414,#efebe6);
+--mute:light-dark(#6b655e,#a59e95);--rule:light-dark(#d2cdc6,#3a3530);--brick:light-dark(#c8371e,#ff6a4d);
+--brick-l:light-dark(#fbe9e5,#3a1f19);--ok:light-dark(#1f6b45,#6fd3a0)}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;overflow-x:clip}
+.num,.n{font-family:"Schibsted Grotesk","Noto Sans TC",sans-serif;font-variant-numeric:tabular-nums}
+.band{padding:clamp(20px,3vw,40px) max(4vw,14px)}
+.wrap{max-width:1240px;margin:0 auto}
+h1{font-size:clamp(28px,4vw,42px);line-height:1.08;margin:0 0 6px;text-wrap:balance;font-weight:700}
+h2{font-size:20px;margin:0 0 12px}
+.sub{color:var(--mute);margin:0;max-width:70ch}
+.panel{background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:16px}
+textarea,input,select{font:inherit;font-size:16px;color:var(--ink);background:var(--panel);border:1px solid var(--rule);border-radius:8px;padding:8px 10px;width:100%}
+textarea{min-height:120px;resize:vertical;line-height:1.6}
+textarea:focus,input:focus,select:focus,button:focus-visible{outline:2px solid var(--brick);outline-offset:1px}
+button{font:inherit;font-size:15px;min-height:44px;padding:0 16px;border-radius:8px;border:1px solid var(--ink);background:var(--panel);color:var(--ink);cursor:pointer;white-space:nowrap}
+button.p{background:var(--ink);color:var(--panel)}
+button.b{background:var(--brick);border-color:var(--brick);color:#fff}
+button:disabled{opacity:.45;cursor:default}
+button.s{min-height:34px;padding:0 10px;font-size:13px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.msg{font-size:14px;color:var(--mute)}
+.msg.err{color:var(--brick)}
+.top{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:16px;margin-top:18px}
+.lab{font-size:13px;color:var(--mute);display:block;margin-bottom:4px}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.sum{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));background:var(--ink);color:var(--panel);border-radius:10px;margin:18px 0 14px}
+.sum div{padding:14px 18px;border-right:1px solid color-mix(in srgb,var(--panel) 15%,transparent)}
+.sum div:last-child{border:0}
+.sum small{display:block;font-size:13px;opacity:.65}
+.sum b{font-size:clamp(20px,2.4vw,28px);font-family:"Schibsted Grotesk","Noto Sans TC",sans-serif;white-space:nowrap}
+.sum b.t{font-size:17px;white-space:normal;line-height:1.35;display:block;margin-top:4px}
+.formula{font-size:13px;color:var(--mute);margin:0 0 10px}
+.cols{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.cols label{font-size:13px;border:1px solid var(--rule);border-radius:999px;padding:4px 10px;background:var(--panel);cursor:pointer;display:flex;gap:5px;align-items:center}
+.cols input{width:auto;margin:0}
+.scroll{overflow-x:auto;background:var(--panel);border:1px solid var(--rule);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{border-bottom:1px solid var(--rule);padding:6px 8px;text-align:left;vertical-align:middle}
+th{font-size:13px;font-weight:500;color:var(--mute);background:color-mix(in srgb,var(--bg) 50%,var(--panel));white-space:nowrap;position:sticky;top:0}
+th.srt{cursor:pointer;user-select:none}
+th.on{color:var(--ink)}
+td input{border:1px solid transparent;background:transparent;padding:5px 6px;font-size:14px;min-width:70px}
+td input:hover{border-color:var(--rule)}
+td input.w{min-width:170px}td input.xs{min-width:58px;width:72px}
+td.r,th.r{text-align:right}
+td.calc{font-weight:700;white-space:nowrap;text-align:right}
+td .warn{font-size:12px;color:var(--brick);font-weight:400}
+tr.best td{background:var(--brick-l)}
+.tag{display:inline-block;font-size:11px;background:var(--brick);color:#fff;border-radius:4px;padding:1px 6px;margin-left:4px;vertical-align:middle}
+.est{font-size:11px;color:var(--mute)}
+.old{font-size:12px;color:var(--mute);text-decoration:line-through;display:block}
+.drop{font-size:12px;color:var(--ok);display:block}
+a{color:var(--brick)}
+.bars{display:grid;gap:8px}
+.bar{display:grid;grid-template-columns:minmax(0,14em) minmax(0,1fr) 6em;gap:10px;align-items:center;font-size:14px}
+.bar .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar .k{height:20px;background:var(--rule);border-radius:4px;overflow:hidden}
+.bar .k i{display:block;height:100%;background:var(--ink);transition:width .4s}
+.bar.best .k i{background:var(--brick)}
+.bar .v{text-align:right;white-space:nowrap}
+.low{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;margin-top:18px}
+.prev{margin-top:14px;display:none}
+.prev canvas{width:100%;height:auto;border:1px solid var(--rule);border-radius:8px;background:#fff}
+.empty{padding:28px;text-align:center;color:var(--mute)}
+@media(prefers-reduced-motion:reduce){.bar .k i{transition:none}}
+@media(max-width:820px){.top,.low{grid-template-columns:minmax(0,1fr)}.sum{grid-template-columns:repeat(2,minmax(0,1fr))}.sum div:nth-child(2){border:0}}
+@media(max-width:600px){.bar{grid-template-columns:minmax(0,1fr) 5.5em}.bar .k{grid-column:1/-1;grid-row:2}.grid2{grid-template-columns:minmax(0,1fr)}}
+</style>
+</head>
+<body>
+<div class="band"><div class="wrap">
+  <div id="shared" class="panel" hidden style="margin-bottom:14px;border-color:var(--brick)"></div>
+  <h1>物件比較分析</h1>
+  <p class="sub">貼上物件訊息，自動整理路段、總價、含車與扣車單價，補上車位資料後產出給客戶的比較圖、PDF 或 LINE 文字。</p>
+
+  <div class="top">
+    <div class="panel">
+      <label class="lab" for="paste">貼上物件訊息（可一次貼多筆）</label>
+      <textarea id="paste" placeholder="推薦：[專任仁美居園道視野附平車]忠明南路 登記坪數：約56.20坪 總價：2380萬 銷售編號：5946NX 網址：https://sinyi.in/o/5946NX/243355"></textarea>
+      <div class="row" style="margin-top:10px">
+        <button class="p" id="go" disabled>加入比較</button>
+        <button id="add">手動新增一筆</button>
+                <button id="clear">清空全部</button>
+      </div>
+      <p class="msg" id="pmsg" role="status" style="margin:8px 0 0"></p>
+    </div>
+    <div class="panel">
+      <h2>車位估價</h2>
+      <p class="msg" style="margin:0 0 8px">有車位但沒有車位價時，扣車單價無法計算。可以先填一個區域行情，套用到所有未填的物件（會標示「估」）。</p>
+      <div class="row">
+        <input id="estPrice" class="num" type="number" min="0" step="1" inputmode="decimal" placeholder="例：220" style="width:120px"> <span class="msg">萬／個</span>
+        <button id="applyEst">套用到未填車位</button>
+      </div>
+      <p class="msg" id="emsg" style="margin:8px 0 0"></p>
+    </div>
+  </div>
+
+  <div class="sum" id="sum"></div>
+  <p class="formula">扣車單價 ＝（總價 − 車位價）÷（登記坪數 − 車位坪數）。車位資料不足時標示原因，不拿含車單價充數；確定無車位時兩者相同。點欄位標題排序。</p>
+  <div class="cols" id="cols" role="group" aria-label="顯示欄位"></div>
+  <div class="scroll"><table id="tbl"></table></div>
+  <p class="msg" id="sample" style="margin:6px 0 0"></p>
+
+  <div class="low">
+    <div class="panel">
+      <h2>扣車單價比較（萬／坪）</h2>
+      <div class="bars" id="bars"></div>
+    </div>
+    <div class="panel">
+      <h2>報告資訊</h2>
+      <div class="grid2">
+        <div><label class="lab" for="agent">業務員</label><input id="agent" placeholder="姓名"></div>
+        <div><label class="lab" for="phone">聯絡電話</label><input id="phone" inputmode="tel" placeholder="09xx-xxxxxx"></div>
+        <div><label class="lab" for="store">店名／單位</label><input id="store" placeholder="例：文心店"></div>
+        <div><label class="lab" for="client">客戶姓名</label><input id="client" placeholder="例：王先生"></div>
+      </div>
+      <div style="margin-top:10px"><label class="lab" for="note">備註</label><input id="note" placeholder="以下為您推薦的比較物件"></div>
+      <div class="row" style="margin-top:12px">
+        <button class="b" id="mkImg">產生比較圖</button>
+        <button id="copyText">複製 LINE 文字</button>
+        <button id="shareLink">產生分享連結</button>
+      </div>
+      <p class="msg" id="omsg" role="status" style="margin:8px 0 0"></p>
+      <input id="linkOut" readonly hidden style="margin-top:8px;font-size:14px">
+    </div>
+  </div>
+
+  <div class="panel prev" id="prev">
+    <div class="row" style="justify-content:space-between">
+      <h2 style="margin:0">比較圖預覽</h2>
+      <div class="row">
+        <button class="p" id="dlImg">下載圖片</button>
+        <button class="p" id="dlPdf">下載 PDF</button>
+        <button id="shImg">分享</button>
+        <button id="cpImg">複製圖片</button>
+        <button id="closePrev">關閉</button>
+      </div>
+    </div>
+    <p class="msg" style="margin:6px 0 10px">整列都沒資料的項目不會出現在圖上。要修改內容請直接改上方表格，再按一次「產生比較圖」。</p>
+    <canvas id="cv"></canvas>
+  </div>
+</div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+{
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const num = v => { if (v === '' || v == null) return null; const n = parseFloat(String(v).replace(/,/g,'')); return isFinite(n) ? n : null; };
+const f2 = v => v == null ? '' : (Math.round(v*100)/100).toFixed(2);
+const fN = v => v == null ? '' : (Math.round(v*100)/100).toLocaleString('zh-TW');
+const store = { get(k,d){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):d }catch(e){ return d } }, set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)) }catch(e){} } };
+const isCode = c => /^[0-9A-Z]{4,8}$/.test(c || '');
+
+const FIELDS = [
+  {k:'title',l:'案名',w:'w'},{k:'address',l:'路段',w:'w'},
+  {k:'price',l:'總價(萬)',n:1,w:'xs',fix:1},{k:'area',l:'登記坪數',n:1,w:'xs',fix:1},
+  {k:'withPark',l:'含車單價',calc:1},{k:'unit',l:'扣車單價',calc:1,fix:1},
+  {k:'mainArea',l:'主建物坪',n:1,w:'xs'},{k:'age',l:'屋齡(年)',n:1,w:'xs'},{k:'floor',l:'樓層'},
+  {k:'layout',l:'格局'},{k:'direction',l:'朝向',w:'xs'},
+  {k:'parkType',l:'車位',ph:'有/無/坡平…'},{k:'parkArea',l:'車位坪數',n:1,w:'xs'},{k:'parkPrice',l:'車位價(萬)',n:1,w:'xs'},
+  {k:'mgmtFee',l:'管理費/月',n:1,w:'xs'},{k:'units',l:'總戶數',w:'xs'},{k:'elevator',l:'電梯',w:'xs'},
+  {k:'builtDate',l:'建築完成日'},{k:'parkNo',l:'車位編號',w:'xs'},{k:'memo',l:'備註',w:'w'}
+];
+const SORTABLE = {price:1,area:1,withPark:1,unit:1,mainArea:1,age:1,mgmtFee:1};
+const DEFAULT_HIDE = ['mainArea','direction','units','elevator','builtDate','parkNo','memo'];
+
+const SAMPLE = [
+  {id:'s1',code:'範例1',title:'園道景觀三房平車',address:'台中市南區忠明南路',price:2180,origPrice:2380,area:56.2,mainArea:27.23,age:13.1,floor:'10樓/15樓',layout:'3房2廳2衛',parkType:'坡道平面',parkArea:9.01,parkPrice:250,mgmtFee:2845,elevator:'有'},
+  {id:'s2',code:'範例2',title:'學區邊間採光大三房',address:'台中市西區五權西路',price:1880,area:48.6,age:18,floor:'7樓/12樓',layout:'3房2廳2衛',parkType:'坡道平面',parkArea:8.2,parkPrice:'',mgmtFee:2200},
+  {id:'s3',code:'範例3',title:'近捷運兩房免車位',address:'台中市南屯區文心南路',price:1320,area:32.4,age:9,floor:'5樓/14樓',layout:'2房2廳1衛',parkType:'無',mgmtFee:1600}
+];
+
+let props = store.get('pc-props', null);
+let isSample = false;
+if (!props || !props.length) { props = SAMPLE.map(p => ({...p})); isSample = true; }
+let hide = store.get('pc-hide', DEFAULT_HIDE);
+let sortKey = 'unit', sortAsc = true;
+let lastCanvas = null;
+
+function calc(p){
+  const price = num(p.price), area = num(p.area), pa = num(p.parkArea), pp = num(p.parkPrice);
+  const withPark = price && area ? price/area : null;
+  const pt = String(p.parkType || '').trim();
+  let unit = null, why = '';
+  if (!price || !area) why = '缺總價或坪數';
+  else if (pt === '無' || pt === '無車位') unit = withPark;
+  else if (pa > 0 && pp > 0 && area > pa) unit = (price - pp)/(area - pa);
+  else if (!pt) why = '車位未確認';
+  else why = !pp ? '車位價未填' : '車位坪數未填';
+  return {withPark, unit, why};
+}
+
+// ---- parse pasted listing messages ----
+function parseText(t){
+  t = String(t || '').replace(/\r/g,'');
+  let blocks = t.split(/(?=推薦[:：])|(?=^\s*[【\[])/m).map(s => s.trim()).filter(Boolean);
+  if (blocks.length <= 1) blocks = t.split(/\n\s*\n/).map(s => s.trim()).filter(Boolean);
+  const out = [];
+  for (const b of blocks){
+    const g = (re) => { const m = b.match(re); return m ? m[1].trim() : ''; };
+    let code = g(/銷售編號[:：]?\s*([0-9A-Za-z]{4,8})/) || g(/sinyi\.in\/o\/([0-9A-Za-z]{4,8})/) || g(/buy\/house\/([0-9A-Za-z]{4,8})/);
+    code = code.toUpperCase();
+    const price = num(g(/(?:總價|售價|開價)[:：]?\s*約?\s*([\d,.]+)\s*萬/));
+    if (!code && !price) continue;
+    let title = g(/[【\[]([^\]】]+)[\]】]/).replace(/^專任/, '');
+    let address = g(/[\]】]\s*([^\s，,]+?)(?=\s|登記|總價|$)/);
+    const p = {
+      id: 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2,6), code, title, address, price, origPrice: price,
+      area: num(g(/(?:登記坪數|登記建坪|建坪|總坪數|坪數)[:：]?\s*約?\s*([\d.]+)\s*坪/)),
+      mainArea: num(g(/主建物[:：]?\s*約?\s*([\d.]+)\s*坪/)),
+      age: num(g(/屋齡[:：]?\s*約?\s*([\d.]+)\s*年/)),
+      floor: g(/(?:樓層|樓別)[:：]?\s*([^\s，,]+)/),
+      layout: g(/格局[:：]?\s*([^\s，,]+)/) || g(/(\d房\d廳\d衛)/),
+      mgmtFee: num(g(/管理費[:：]?\s*約?\s*([\d,]+)/)),
+      parkArea: num(g(/車位坪數[:：]?\s*約?\s*([\d.]+)/)),
+      parkPrice: num(g(/車位(?:價|價格|售價)[:：]?\s*約?\s*([\d,.]+)\s*萬/)),
+      parkType: /無車位|不含車位/.test(b) ? '無' : (/車位|平車|機械車|附車|坡平|坡機/.test(title + b.slice(0,80)) ? '有' : ''),
+      url: isCode(code) ? 'https://www.sinyi.com.tw/buy/house/' + code : ''
+    };
+    out.push(p);
+  }
+  return out;
+}
+
+function save(){ if (!isSample) store.set('pc-props', props); }
+
+// ---- render ----
+function visible(){ return FIELDS.filter(f => f.fix || !hide.includes(f.k)); }
+function sorted(){
+  const val = p => { if (sortKey === 'withPark' || sortKey === 'unit') return calc(p)[sortKey]; return num(p[sortKey]); };
+  return props.slice().sort((a,b) => { const x = val(a), y = val(b); if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1; return sortAsc ? x - y : y - x; });
+}
+function bestId(){ let b = null, v = Infinity; for (const p of props){ const u = calc(p).unit; if (u != null && u < v){ v = u; b = p.id; } } return b; }
+
+function renderCols(){
+  $('cols').innerHTML = FIELDS.filter(f => !f.fix).map(f => `<label><input type="checkbox" data-col="${f.k}" ${hide.includes(f.k)?'':'checked'}>${esc(f.l)}</label>`).join('');
+}
+
+function render(){
+  const cols = visible(), best = bestId();
+  if (!props.length){ $('tbl').innerHTML = '<tbody><tr><td class="empty">還沒有物件。上方貼上物件訊息，或按「手動新增一筆」。</td></tr></tbody>'; }
+  else {
+    const head = '<thead><tr>' + cols.map(f => {
+      const s = SORTABLE[f.k]; const on = sortKey === f.k;
+      return `<th class="${s?'srt':''} ${on?'on':''} ${f.n||f.calc?'r':''}" ${s?`data-sort="${f.k}" tabindex="0" aria-sort="${on?(sortAsc?'ascending':'descending'):'none'}"`:''}>${esc(f.l)}${on?(sortAsc?' ↑':' ↓'):''}</th>`;
+    }).join('') + '<th>編號</th><th></th></tr></thead>';
+    const body = '<tbody>' + sorted().map(p => {
+      const c = calc(p);
+      const tds = cols.map(f => {
+        if (f.k === 'withPark') return `<td class="calc n">${f2(c.withPark)}</td>`;
+        if (f.k === 'unit') return `<td class="calc n">${c.unit!=null?f2(c.unit):`<span class="warn">${esc(c.why)}</span>`}${p.id===best?'<span class="tag">最低</span>':''}</td>`;
+        const v = p[f.k] ?? '';
+        let extra = '';
+        if (f.k === 'price' && num(p.origPrice) && num(p.price) && num(p.origPrice) !== num(p.price)) {
+          const d = num(p.origPrice) - num(p.price);
+          extra = `<span class="old n">${fN(num(p.origPrice))}</span>${d>0?`<span class="drop n">降 ${fN(d)} 萬</span>`:''}`;
+        }
+        if (f.k === 'parkPrice' && p.parkEst) extra = '<span class="est">估</span>';
+        return `<td class="${f.n?'r':''}"><input class="${f.w||''} ${f.n?'n':''}" ${f.n?'type="number" step="any" inputmode="decimal"':''} data-id="${esc(p.id)}" data-k="${f.k}" value="${esc(v)}" placeholder="${esc(f.ph||'')}" aria-label="${esc((p.title||p.code)+' '+f.l)}">${extra}</td>`;
+      }).join('');
+      const link = p.url && /^https:\/\//.test(p.url) ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.code)}</a>` : esc(p.code || '');
+      const fetchBtn = '';
+      return `<tr class="${p.id===best?'best':''}">${tds}<td style="white-space:nowrap">${link}<br><span class="msg" data-st="${esc(p.id)}" style="font-size:12px">${esc(p._st||'')}</span></td><td style="white-space:nowrap">${fetchBtn}<button class="s" data-del="${esc(p.id)}" aria-label="刪除">刪除</button></td></tr>`;
+    }).join('') + '</tbody>';
+    $('tbl').innerHTML = head + body;
+  }
+  $('sample').textContent = isSample ? '目前顯示的是範例資料，貼上你的物件後會自動取代。' : '';
+  renderSummary(best); renderBars(best);
+}
+
+function renderSummary(best){
+  const prices = props.map(p => num(p.price)).filter(v => v != null);
+  const units = props.map(p => calc(p).unit).filter(v => v != null);
+  const bp = props.find(p => p.id === best);
+  const rng = a => a.length ? (a.length > 1 ? `${fN(Math.min(...a))}–${fN(Math.max(...a))}` : fN(a[0])) : '—';
+  const avg = units.length ? units.reduce((s,v)=>s+v,0)/units.length : null;
+  $('sum').innerHTML = `
+    <div><small>比較物件</small><b>${props.length} 筆</b></div>
+    <div><small>總價區間（萬）</small><b>${rng(prices)}</b></div>
+    <div><small>扣車單價 平均（萬／坪）</small><b>${avg!=null?f2(avg):'—'}</b></div>
+    <div><small>扣車單價最低</small><b class="t">${bp?esc(bp.title||bp.code)+' · '+f2(calc(bp).unit):'—'}</b></div>`;
+}
+
+function renderBars(best){
+  const rows = props.map(p => ({p, u: calc(p).unit})).filter(r => r.u != null).sort((a,b) => a.u - b.u);
+  if (!rows.length){ $('bars').innerHTML = '<p class="msg">補齊總價、坪數與車位資料後會出現在這裡。</p>'; return; }
+  const max = Math.max(...rows.map(r => r.u));
+  $('bars').innerHTML = rows.map(r => `<div class="bar ${r.p.id===best?'best':''}"><span class="t">${esc(r.p.title||r.p.code||'未命名')}</span><span class="k"><i style="width:${(r.u/max*100).toFixed(1)}%"></i></span><span class="v n">${f2(r.u)}</span></div>`).join('');
+}
+
+// ---- events ----
+$('paste').addEventListener('input', () => {
+  const n = parseText($('paste').value).length;
+  $('go').disabled = !n; $('go').textContent = n ? `加入比較（${n} 筆）` : '加入比較';
+});
+$('go').addEventListener('click', () => {
+  const list = parseText($('paste').value);
+  if (isSample){ props = []; isSample = false; }
+  let added = 0, dup = 0;
+  for (const p of list){ if (p.code && props.some(q => q.code === p.code)) { dup++; continue; } props.push(p); added++; }
+  $('paste').value = ''; $('go').disabled = true; $('go').textContent = '加入比較';
+  $('pmsg').className = 'msg';
+  $('pmsg').textContent = `已加入 ${added} 筆` + (dup ? `，${dup} 筆重複略過` : '') + '。屋齡、樓層、車位、管理費可直接在表格裡填（點編號可開官網對照）。';
+  save(); render();
+});
+$('add').addEventListener('click', () => {
+  if (isSample){ props = []; isSample = false; }
+  props.push({id:'p'+Date.now().toString(36), code:'', title:'', address:''}); save(); render();
+});
+$('clear').addEventListener('click', () => {
+  if ($('clear').dataset.arm){ props = []; isSample = false; save(); render(); $('clear').textContent = '清空全部'; delete $('clear').dataset.arm; return; }
+  $('clear').dataset.arm = 1; $('clear').textContent = '再按一次確認清空';
+  setTimeout(() => { delete $('clear').dataset.arm; $('clear').textContent = '清空全部'; }, 3000);
+});
+$('applyEst').addEventListener('click', () => {
+  const v = num($('estPrice').value); if (!v){ $('emsg').textContent = '請先輸入車位估價。'; return; }
+  let n = 0;
+  for (const p of props){ const pt = String(p.parkType||'').trim(); if (pt && pt !== '無' && !num(p.parkPrice)){ p.parkPrice = v; p.parkEst = true; n++; } }
+  $('emsg').textContent = n ? `已套用到 ${n} 筆（標示「估」）。沒填車位坪數的仍需補坪數。` : '沒有「有車位但未填車位價」的物件。';
+  isSample = false; save(); render();
+});
+$('tbl').addEventListener('change', e => {
+  const i = e.target.closest('input[data-k]'); if (!i) return;
+  const p = props.find(q => q.id === i.dataset.id); if (!p) return;
+  const k = i.dataset.k; p[k] = i.type === 'number' ? (i.value === '' ? '' : num(i.value)) : i.value.trim();
+  if (k === 'parkPrice') p.parkEst = false;
+  if (k === 'code'){ p.url = isCode(p.code) ? 'https://www.sinyi.com.tw/buy/house/'+p.code : ''; }
+  isSample = false; save(); render();
+});
+function doSort(k){ if (sortKey === k) sortAsc = !sortAsc; else { sortKey = k; sortAsc = true; } render(); }
+$('tbl').addEventListener('click', e => {
+  const th = e.target.closest('th[data-sort]'); if (th) return doSort(th.dataset.sort);
+  const d = e.target.closest('[data-del]'); if (d){ props = props.filter(p => p.id !== d.dataset.del); isSample = false; save(); render(); return; }
+});
+$('tbl').addEventListener('keydown', e => { const th = e.target.closest('th[data-sort]'); if (th && (e.key === 'Enter' || e.key === ' ')){ e.preventDefault(); doSort(th.dataset.sort); } });
+$('cols').addEventListener('change', e => {
+  const k = e.target.dataset.col; if (!k) return;
+  hide = e.target.checked ? hide.filter(x => x !== k) : [...hide, k]; store.set('pc-hide', hide); render();
+});
+['agent','phone','store','client','note','estPrice'].forEach(id => {
+  $(id).value = store.get('pc-'+id, '');
+  $(id).addEventListener('input', () => store.set('pc-'+id, $(id).value));
+});
+
+// ---- comparison image (canvas) ----
+const FONT = '"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif';
+function imgRows(list){
+  const rows = [
+    ['路段', p => p.address], ['總價', p => num(p.price) ? fN(num(p.price)) + ' 萬' + (num(p.origPrice) && num(p.origPrice) > num(p.price) ? `（原 ${fN(num(p.origPrice))}）` : '') : ''],
+    ['登記坪數', p => num(p.area) ? f2(num(p.area)) + ' 坪' : ''], ['主建物', p => num(p.mainArea) ? f2(num(p.mainArea)) + ' 坪' : ''],
+    ['含車單價', p => { const v = calc(p).withPark; return v ? f2(v) + ' 萬/坪' : ''; }],
+    ['扣車單價', p => { const c = calc(p); return c.unit ? f2(c.unit) + ' 萬/坪' : (c.why || ''); }],
+    ['屋齡', p => num(p.age) != null ? fN(num(p.age)) + ' 年' : ''], ['樓層', p => p.floor], ['格局', p => p.layout], ['朝向', p => p.direction],
+    ['車位', p => { const t = String(p.parkType||'').trim(); if (!t) return ''; if (t === '無') return '無'; const bits = [t]; if (num(p.parkArea)) bits.push(f2(num(p.parkArea)) + '坪'); if (num(p.parkPrice)) bits.push(fN(num(p.parkPrice)) + '萬' + (p.parkEst ? '(估)' : '')); return bits.join(' / '); }],
+    ['管理費', p => num(p.mgmtFee) ? fN(num(p.mgmtFee)) + ' 元/月' : ''], ['總戶數', p => p.units], ['電梯', p => p.elevator],
+    ['建築完成日', p => p.builtDate], ['車位編號', p => p.parkNo], ['備註', p => p.memo]
+  ];
+  return rows.filter(([, fn]) => list.some(p => String(fn(p) ?? '').trim()));
+}
+function wrap(ctx, text, w, maxLines){
+  const out = []; let line = '';
+  for (const ch of String(text ?? '')){ if (ctx.measureText(line + ch).width > w && line){ out.push(line); line = ch; if (out.length === maxLines) break; } else line += ch; }
+  if (out.length < maxLines && line) out.push(line);
+  if (out.length === maxLines && out.join('').length < String(text).length) out[maxLines-1] = out[maxLines-1].slice(0, -1) + '…';
+  return out;
+}
+function drawImage(){
+  const list = sorted(); const best = bestId(); const rows = imgRows(list);
+  const S = 2, LW = 120, CW = Math.max(180, Math.min(240, Math.floor(1100 / Math.max(list.length,1)))), PAD = 28, RH = 40, HH = 70;
+  const W = PAD*2 + LW + CW*list.length, top = 118;
+  const cv = $('cv'); const ctx = cv.getContext('2d');
+  ctx.font = `700 15px ${FONT}`;
+  const titleLines = list.map(p => wrap(ctx, p.title || p.code || '未命名', CW - 20, 2));
+  const H = top + HH + rows.length*RH + 84;
+  cv.width = W*S; cv.height = H*S; ctx.setTransform(S,0,0,S,0,0);
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle = '#141414'; ctx.font = `700 26px ${FONT}`; ctx.textBaseline = 'alphabetic';
+  ctx.fillText('物件比較表', PAD, 50);
+  ctx.font = `400 14px ${FONT}`; ctx.fillStyle = '#6b655e';
+  const client = $('client').value.trim(), note = $('note').value.trim();
+  ctx.fillText([client ? client + ' 您好' : '', note || '以下為您推薦的比較物件'].filter(Boolean).join('，'), PAD, 78);
+  const d = new Date(); ctx.textAlign = 'right'; ctx.fillText(`${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`, W - PAD, 50); ctx.textAlign = 'left';
+  ctx.fillStyle = '#c8371e'; ctx.fillRect(PAD, 94, W - PAD*2, 3);
+  // header
+  list.forEach((p, i) => {
+    const x = PAD + LW + CW*i;
+    if (p.id === best){ ctx.fillStyle = '#fbe9e5'; ctx.fillRect(x, top, CW, HH + rows.length*RH); ctx.fillStyle = '#c8371e'; ctx.fillRect(x, top, CW, 4); }
+    ctx.fillStyle = '#141414'; ctx.font = `700 15px ${FONT}`;
+    titleLines[i].forEach((ln, j) => ctx.fillText(ln, x + 10, top + 26 + j*20));
+    if (p.id === best){ ctx.font = `700 12px ${FONT}`; ctx.fillStyle = '#c8371e'; ctx.fillText('扣車單價最低', x + 10, top + HH - 6); }
+  });
+  ctx.strokeStyle = '#141414'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(PAD, top + HH); ctx.lineTo(W - PAD, top + HH); ctx.stroke();
+  rows.forEach(([label, fn], r) => {
+    const y = top + HH + r*RH;
+    ctx.fillStyle = '#6b655e'; ctx.font = `500 14px ${FONT}`; ctx.fillText(label, PAD + 4, y + 25);
+    list.forEach((p, i) => {
+      const x = PAD + LW + CW*i; const v = String(fn(p) ?? '');
+      const strong = label === '扣車單價' || label === '總價';
+      ctx.font = `${strong ? 700 : 400} ${strong ? 15 : 14}px ${FONT}`;
+      ctx.fillStyle = label === '扣車單價' && p.id === best ? '#c8371e' : (label === '扣車單價' && !calc(p).unit ? '#a59e95' : '#141414');
+      ctx.fillText(wrap(ctx, v, CW - 20, 1)[0] || '', x + 10, y + 25);
+    });
+    ctx.strokeStyle = '#d2cdc6'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(PAD, y + RH); ctx.lineTo(W - PAD, y + RH); ctx.stroke();
+  });
+  const fy = top + HH + rows.length*RH + 34;
+  ctx.fillStyle = '#6b655e'; ctx.font = `400 12px ${FONT}`;
+  ctx.fillText('扣車單價＝（總價−車位價）÷（登記坪數−車位坪數）。標示（估）之車位價為估算，實際以現場與契約為準。', PAD, fy);
+  const who = [$('store').value.trim(), $('agent').value.trim(), $('phone').value.trim()].filter(Boolean).join('　');
+  if (who){ ctx.fillStyle = '#141414'; ctx.font = `700 14px ${FONT}`; ctx.fillText(who, PAD, fy + 28); }
+  lastCanvas = cv;
+}
+$('mkImg').addEventListener('click', async () => {
+  if (!props.length){ $('omsg').textContent = '請先加入物件。'; return; }
+  try { await document.fonts.ready; } catch(e){}
+  drawImage(); $('prev').style.display = 'block'; $('prev').scrollIntoView({behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'});
+});
+$('closePrev').addEventListener('click', () => { $('prev').style.display = 'none'; });
+const fname = ext => `物件比較${$('client').value.trim() ? '_' + $('client').value.trim() : ''}_${new Date().toISOString().slice(0,10)}.${ext}`;
+function saveBlob(blob, name){ const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000); }
+const blobOf = cv => new Promise(res => cv.toBlob(res, 'image/png'));
+$('dlImg').addEventListener('click', async () => {
+  if (!lastCanvas) return;
+  saveBlob(await blobOf(lastCanvas), fname('png'));
+});
+$('dlPdf').addEventListener('click', async () => {
+  if (!lastCanvas || !window.jspdf) { $('omsg').textContent = 'PDF 元件沒有載入。'; return; }
+  try {
+    const {jsPDF} = window.jspdf; const doc = new jsPDF({orientation:'landscape', unit:'mm', format:'a4'});
+    const pw = 297, ph = 210, m = 8; const r = Math.min((pw-2*m)/lastCanvas.width, (ph-2*m)/lastCanvas.height);
+    const w = lastCanvas.width*r, h = lastCanvas.height*r;
+    doc.addImage(lastCanvas.toDataURL('image/png'), 'PNG', (pw-w)/2, m, w, h);
+    saveBlob(doc.output('blob'), fname('pdf'));
+  } catch(e){ $('omsg').textContent = '沒有下載成功（可能被取消）。'; }
+});
+$('cpImg').addEventListener('click', async () => {
+  try { await navigator.clipboard.write([new ClipboardItem({'image/png': blobOf(lastCanvas)})]); $('omsg').textContent = '圖片已複製，可以直接貼到 LINE。'; }
+  catch(e){ $('omsg').textContent = '這個瀏覽器不允許複製圖片，請改用下載圖片。'; }
+});
+$('copyText').addEventListener('click', async () => {
+  const best = bestId(); const client = $('client').value.trim();
+  const lines = [(client ? client + ' 您好，' : '') + ($('note').value.trim() || '以下為您推薦的比較物件'), ''];
+  sorted().forEach((p, i) => {
+    const c = calc(p);
+    lines.push(`${i+1}. ${p.title || p.code}${p.id === best ? '（扣車單價最低）' : ''}`);
+    lines.push(`　${[p.address, p.layout, p.floor, num(p.age) != null ? p.age + '年' : ''].filter(Boolean).join('｜')}`);
+    lines.push(`　總價 ${fN(num(p.price))} 萬｜${f2(num(p.area))} 坪｜扣車單價 ${c.unit ? f2(c.unit) + ' 萬/坪' : c.why}`);
+    if (p.url) lines.push('　' + p.url);
+  });
+  const who = [$('store').value.trim(), $('agent').value.trim(), $('phone').value.trim()].filter(Boolean).join(' ');
+  if (who) lines.push('', who);
+  try { await navigator.clipboard.writeText(lines.join('\n')); $('omsg').textContent = '文字已複製，可以貼到 LINE。'; }
+  catch(e){ $('omsg').textContent = '無法存取剪貼簿。'; }
+});
+
+// ---- share: mobile share sheet for the image ----
+$('shImg').addEventListener('click', async () => {
+  try {
+    const file = new File([await blobOf(lastCanvas)], fname('png'), {type:'image/png'});
+    if (navigator.canShare && navigator.canShare({files:[file]})) await navigator.share({files:[file], title:'物件比較表'});
+    else $('omsg').textContent = '這個瀏覽器不支援直接分享，請改用下載圖片。';
+  } catch(e){}
+});
+
+// ---- share link: whole report packed into the URL hash ----
+const KEEP = ['code','title','address','price','origPrice','area','mainArea','age','floor','layout','direction','parkType','parkArea','parkPrice','parkEst','mgmtFee','units','elevator','builtDate','parkNo','memo','url'];
+const b64u = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const unb64u = s => Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')), c => c.charCodeAt(0));
+async function pack(obj){
+  const bytes = new TextEncoder().encode(JSON.stringify(obj));
+  if (window.CompressionStream){ const s = new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw')); return 'z' + b64u(await new Response(s).arrayBuffer()); }
+  return 'j' + b64u(bytes);
+}
+async function unpack(str){
+  const kind = str[0], bytes = unb64u(str.slice(1));
+  let text;
+  if (kind === 'z'){ const s = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw')); text = await new Response(s).text(); }
+  else text = new TextDecoder().decode(bytes);
+  return JSON.parse(text);
+}
+$('shareLink').addEventListener('click', async () => {
+  if (!props.length || isSample){ $('omsg').textContent = '請先加入你自己的物件。'; return; }
+  const data = { p: props.map(p => Object.fromEntries(KEEP.filter(k => p[k] !== '' && p[k] != null && p[k] !== false).map(k => [k, p[k]]))),
+    a: $('agent').value.trim(), ph: $('phone').value.trim(), s: $('store').value.trim(), c: $('client').value.trim(), n: $('note').value.trim() };
+  const url = location.href.split('#')[0] + '#d=' + await pack(data);
+  $('linkOut').hidden = false; $('linkOut').value = url; $('linkOut').select();
+  try { await navigator.clipboard.writeText(url); $('omsg').textContent = '分享連結已複製，客戶打開就看得到同一份比較表。'; }
+  catch(e){ $('omsg').textContent = '請手動複製下方連結。'; }
+});
+
+async function boot(){
+  const m = location.hash.match(/^#d=(.+)$/);
+  if (m){
+    try {
+      const d = await unpack(m[1]);
+      props = d.p.map((p, i) => ({...p, id: 'v' + i})); isSample = true; // isSample=true keeps the viewer's own saved list untouched
+      $('agent').value = d.a || ''; $('phone').value = d.ph || ''; $('store').value = d.s || ''; $('client').value = d.c || ''; $('note').value = d.n || '';
+      const who = [d.s, d.a, d.ph].filter(Boolean).map(esc).join('　');
+      $('shared').hidden = false;
+      $('shared').innerHTML = `<b>${esc(d.c ? d.c + ' 您好，' : '')}${esc(d.n || '以下為您推薦的比較物件')}</b>${who ? `<br><span class="msg">${who}</span>` : ''}`;
+      renderCols(); render(); $('sample').textContent = '';
+      return;
+    } catch(e){ $('pmsg').textContent = '分享連結無法讀取，可能被截斷了。'; }
+  }
+  renderCols(); render();
+}
+boot();
+}
+</script>
+</body>
+</html>
