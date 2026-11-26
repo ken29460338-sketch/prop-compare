@@ -79,6 +79,28 @@ a{color:var(--brick)}
 .prev{margin-top:14px;display:none}
 .prev canvas{width:100%;height:auto;border:1px solid var(--rule);border-radius:8px;background:#fff}
 .empty{padding:28px;text-align:center;color:var(--mute)}
+.tour{margin-top:18px}
+.tgrid{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:16px;margin-top:12px}
+.tlist{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.ti{display:grid;grid-template-columns:44px 2.2em minmax(0,1fr) auto;gap:8px;align-items:center;background:var(--panel);border:1px solid var(--rule);border-radius:8px;padding:8px}
+.ti.off{opacity:.5}
+.ti.drag{box-shadow:0 8px 24px rgba(0,0,0,.18);border-color:var(--ink);position:relative;z-index:2}
+.ti.ph{border-style:dashed}
+.hdl{width:44px;height:44px;border:0;background:none;cursor:grab;touch-action:none;display:grid;place-items:center;padding:0;min-height:0;color:var(--mute)}
+.hdl:active{cursor:grabbing}
+.hdl svg{width:18px;height:18px}
+.no{font-family:"Schibsted Grotesk",sans-serif;font-weight:700;font-size:20px;text-align:center}
+.ti .nm{font-weight:700;font-size:15px;line-height:1.35;margin-bottom:4px}
+.ti .f{display:grid;grid-template-columns:5.5em minmax(0,1fr);gap:6px}
+.ti input{font-size:15px;padding:6px 8px}
+.ti .side{display:flex;flex-direction:column;gap:4px;align-items:flex-end}
+.ti .side label{font-size:12px;color:var(--mute);display:flex;gap:4px;align-items:center;white-space:nowrap}
+.ti .side input[type=checkbox]{width:auto;margin:0}
+.mv{display:flex;gap:4px}
+.mv button{min-height:32px;width:32px;padding:0}
+#tourText{min-height:320px;font-size:15px;background:color-mix(in srgb,var(--bg) 40%,var(--panel))}
+@media(max-width:820px){.tgrid{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:600px){.ti{grid-template-columns:44px 1.8em minmax(0,1fr)}.ti .side{grid-column:1/-1;flex-direction:row;justify-content:space-between;align-items:center}.ti .f{grid-template-columns:minmax(0,1fr)}}
 @media(prefers-reduced-motion:reduce){.bar .k i{transition:none}}
 @media(max-width:820px){.top,.low{grid-template-columns:minmax(0,1fr)}.sum{grid-template-columns:repeat(2,minmax(0,1fr))}.sum div:nth-child(2){border:0}}
 @media(max-width:600px){.bar{grid-template-columns:minmax(0,1fr) 5.5em}.bar .k{grid-column:1/-1;grid-row:2}.grid2{grid-template-columns:minmax(0,1fr)}}
@@ -141,6 +163,29 @@ a{color:var(--brick)}
       <input id="linkOut" readonly hidden style="margin-top:8px;font-size:14px">
     </div>
   </div>
+
+  <section class="panel tour" id="tour">
+    <div class="row" style="justify-content:space-between">
+      <h2 style="margin:0">帶看路線</h2>
+      <span class="msg">按住左側把手拖拉調整順序，手機也可以用 ↑↓</span>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div><label class="lab" for="tDate">帶看日期</label><input id="tDate" type="date" style="width:170px"></div>
+      <div style="flex:1 1 220px"><label class="lab" for="tMeet">集合地點（選填）</label><input id="tMeet" placeholder="例：信義房屋文心店門口"></div>
+    </div>
+    <div class="tgrid">
+      <ol class="tlist" id="tlist"></ol>
+      <div>
+        <label class="lab" for="tourText">傳給客戶的文字（會跟著順序更新，也可以直接改）</label>
+        <textarea id="tourText"></textarea>
+        <div class="row" style="margin-top:8px">
+          <button class="b" id="copyTour">複製帶看路線</button>
+          <a id="routeLink" href="#" target="_blank" rel="noopener" style="display:none">在 Google 地圖開啟全程路線</a>
+        </div>
+        <p class="msg" id="tmsg" role="status" style="margin:6px 0 0"></p>
+      </div>
+    </div>
+  </section>
 
   <div class="panel prev" id="prev">
     <div class="row" style="justify-content:space-between">
@@ -284,6 +329,7 @@ function render(){
   }
   $('sample').textContent = isSample ? '目前顯示的是範例資料，貼上你的物件後會自動取代。' : '';
   renderSummary(best); renderBars(best);
+  if (typeof renderTour === 'function' && !location.hash.startsWith('#d=')) renderTour();
 }
 
 function renderSummary(best){
@@ -505,6 +551,131 @@ $('shareLink').addEventListener('click', async () => {
   catch(e){ $('omsg').textContent = '請手動複製下方連結。'; }
 });
 
+
+// ---- 帶看路線 ----
+const GRIP = '<svg viewBox="0 0 20 20" aria-hidden="true"><g fill="currentColor"><circle cx="7" cy="5" r="1.6"/><circle cx="13" cy="5" r="1.6"/><circle cx="7" cy="10" r="1.6"/><circle cx="13" cy="10" r="1.6"/><circle cx="7" cy="15" r="1.6"/><circle cx="13" cy="15" r="1.6"/></g></svg>';
+let tourOrder = store.get('pc-tour', []);
+const mapQ = q => 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q);
+const tAddr = p => String(p.tourAddr || p.address || '').trim();
+function tourList(){
+  const ids = props.map(p => p.id);
+  tourOrder = tourOrder.filter(id => ids.includes(id)).concat(ids.filter(id => !tourOrder.includes(id)));
+  return tourOrder.map(id => props.find(p => p.id === id));
+}
+function saveTour(){ store.set('pc-tour', tourOrder); }
+function renderTour(){
+  const list = tourList(); let n = 0;
+  $('tlist').innerHTML = list.length ? list.map(p => {
+    const on = !p.tourOff; if (on) n++;
+    return `<li class="ti ${on?'':'off'}" data-id="${esc(p.id)}">
+      <button class="hdl" type="button" aria-label="拖拉調整 ${esc(p.title||p.code)} 的順序">${GRIP}</button>
+      <span class="no">${on ? n : '–'}</span>
+      <div>
+        <div class="nm">${esc(p.title || p.code || '未命名物件')}</div>
+        <div class="f">
+          <input class="n" data-t="tourTime" value="${esc(p.tourTime||'')}" placeholder="時間 10:00" aria-label="帶看時間">
+          <input data-t="tourAddr" value="${esc(tAddr(p))}" placeholder="詳細地址（例：台中市南區忠明南路 123 號）" aria-label="詳細地址">
+        </div>
+      </div>
+      <div class="side">
+        <label><input type="checkbox" data-t="tourOff" ${on?'checked':''}>帶看</label>
+        <span class="mv"><button type="button" data-mv="-1" aria-label="上移">↑</button><button type="button" data-mv="1" aria-label="下移">↓</button></span>
+      </div>
+    </li>`;
+  }).join('') : '<li class="msg">先在上方加入物件，這裡就會出現帶看清單。</li>';
+  buildTourText();
+}
+function dateLabel(){
+  const v = $('tDate').value; if (!v) return '';
+  const d = new Date(v + 'T00:00:00'), t = new Date(); t.setHours(0,0,0,0);
+  const diff = Math.round((d - t) / 864e5);
+  const md = `${d.getMonth()+1}/${d.getDate()}（${'日一二三四五六'[d.getDay()]}）`;
+  return diff === 0 ? `今天 ${md}` : diff === 1 ? `明天 ${md}` : md;
+}
+function buildTourText(){
+  const list = tourList().filter(p => !p.tourOff);
+  const client = $('client').value.trim(), dl = dateLabel(), meet = $('tMeet').value.trim();
+  const when = dl.startsWith('明天') ? '明天' : dl.startsWith('今天') ? '今天' : '當天';
+  const L = [`【帶看路線】${dl}`, `${client ? client + '您好，' : ''}以下是${when}的帶看順序：`, ''];
+  if (meet) L.push(`集合地點：${meet}`, mapQ(meet), '');
+  list.forEach((p, i) => {
+    const a = tAddr(p);
+    L.push(`${i+1}. ${p.tourTime ? p.tourTime + ' ' : ''}${p.title || p.code || '物件'}`);
+    if (a) { L.push(`地址：${a}`); L.push(`地圖：${mapQ(a)}`); }
+    L.push('');
+  });
+  const stops = (meet ? [meet] : []).concat(list.map(tAddr).filter(Boolean));
+  let route = '';
+  if (stops.length >= 2){
+    const u = new URL('https://www.google.com/maps/dir/');
+    u.searchParams.set('api', '1'); u.searchParams.set('origin', stops[0]); u.searchParams.set('destination', stops[stops.length-1]);
+    if (stops.length > 2) u.searchParams.set('waypoints', stops.slice(1, -1).slice(0, 9).join('|'));
+    route = u.toString(); L.push('全程路線：', route, '');
+  }
+  const who = [$('store').value.trim(), $('agent').value.trim(), $('phone').value.trim()].filter(Boolean).join(' ');
+  if (who) L.push(who);
+  $('tourText').value = list.length ? L.join('\n').trim() : '';
+  $('routeLink').style.display = route ? '' : 'none'; if (route) $('routeLink').href = route;
+  const miss = list.filter(p => !tAddr(p)).length;
+  $('tmsg').textContent = miss ? `有 ${miss} 間還沒填地址，地圖連結不會出現。` : '';
+}
+$('tlist').addEventListener('input', e => {
+  const i = e.target.closest('input[data-t]'); if (!i || i.type === 'checkbox') return;
+  const p = props.find(q => q.id === i.closest('.ti').dataset.id); p[i.dataset.t] = i.value; isSample = false; save(); buildTourText();
+});
+$('tlist').addEventListener('change', e => {
+  const i = e.target.closest('input[data-t=tourOff]'); if (!i) return;
+  const p = props.find(q => q.id === i.closest('.ti').dataset.id); p.tourOff = !i.checked; isSample = false; save(); renderTour();
+});
+$('tlist').addEventListener('click', e => {
+  const b = e.target.closest('[data-mv]'); if (!b) return;
+  const id = b.closest('.ti').dataset.id, i = tourOrder.indexOf(id), j = i + Number(b.dataset.mv);
+  if (j < 0 || j >= tourOrder.length) return;
+  [tourOrder[i], tourOrder[j]] = [tourOrder[j], tourOrder[i]]; saveTour(); renderTour();
+  const again = document.querySelector(`.ti[data-id="${CSS.escape(id)}"] [data-mv="${b.dataset.mv}"]`); if (again) again.focus();
+});
+// pointer drag (mouse + touch)
+$('tlist').addEventListener('pointerdown', e => {
+  const h = e.target.closest('.hdl'); if (!h) return;
+  e.preventDefault();
+  const li = h.closest('.ti'), ol = $('tlist'), startY = e.clientY; let shift = 0;
+  li.classList.add('drag'); h.setPointerCapture(e.pointerId);
+  const move = ev => {
+    li.style.transform = `translateY(${ev.clientY - startY - shift}px)`;
+    const r = li.getBoundingClientRect(), mid = r.top + r.height / 2;
+    const prev = li.previousElementSibling, next = li.nextElementSibling;
+    let target = null;
+    if (prev && mid < prev.getBoundingClientRect().top + prev.offsetHeight / 2) target = 'up';
+    else if (next && mid > next.getBoundingClientRect().top + next.offsetHeight / 2) target = 'down';
+    if (!target) return;
+    const before = li.offsetTop;
+    if (target === 'up') ol.insertBefore(li, prev); else ol.insertBefore(next, li);
+    shift += li.offsetTop - before; // the item moved in the layout; keep it under the pointer
+    li.style.transform = `translateY(${ev.clientY - startY - shift}px)`;
+  };
+  const up = () => {
+    h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up); h.removeEventListener('pointercancel', up);
+    li.classList.remove('drag'); li.style.transform = '';
+    tourOrder = [...ol.children].map(x => x.dataset.id).filter(Boolean); saveTour(); renderTour();
+  };
+  h.addEventListener('pointermove', move); h.addEventListener('pointerup', up); h.addEventListener('pointercancel', up);
+});
+$('tlist').addEventListener('keydown', e => {
+  const h = e.target.closest('.hdl'); if (!h || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+  e.preventDefault(); const b = h.closest('.ti').querySelector(`[data-mv="${e.key === 'ArrowUp' ? -1 : 1}"]`); b.click();
+  const id = h.closest('.ti').dataset.id; const nh = document.querySelector(`.ti[data-id="${CSS.escape(id)}"] .hdl`); if (nh) nh.focus();
+});
+['tDate','tMeet'].forEach(id => $(id).addEventListener('input', () => { store.set('pc-'+id, $(id).value); buildTourText(); }));
+['client','agent','phone','store'].forEach(id => $(id).addEventListener('input', buildTourText));
+$('tMeet').value = store.get('pc-tMeet', '');
+{ const t = new Date(); t.setDate(t.getDate() + 1); const saved = store.get('pc-tDate', ''); const tm = t.toISOString().slice(0,10);
+  $('tDate').value = saved && saved >= new Date().toISOString().slice(0,10) ? saved : `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`; }
+$('copyTour').addEventListener('click', async () => {
+  const t = $('tourText').value; if (!t){ $('tmsg').textContent = '還沒有要帶看的物件。'; return; }
+  try { await navigator.clipboard.writeText(t); $('tmsg').textContent = '已複製，可以直接貼到客戶的 LINE。'; }
+  catch(e){ $('tourText').select(); $('tmsg').textContent = '請按 Ctrl+C（手機長按）複製已選取的文字。'; }
+});
+
 async function boot(){
   const m = location.hash.match(/^#d=(.+)$/);
   if (m){
@@ -513,7 +684,7 @@ async function boot(){
       props = d.p.map((p, i) => ({...p, id: 'v' + i})); isSample = true; // isSample=true keeps the viewer's own saved list untouched
       $('agent').value = d.a || ''; $('phone').value = d.ph || ''; $('store').value = d.s || ''; $('client').value = d.c || ''; $('note').value = d.n || '';
       const who = [d.s, d.a, d.ph].filter(Boolean).map(esc).join('　');
-      $('shared').hidden = false;
+      $('shared').hidden = false; $('tour').hidden = true;
       $('shared').innerHTML = `<b>${esc(d.c ? d.c + ' 您好，' : '')}${esc(d.n || '以下為您推薦的比較物件')}</b>${who ? `<br><span class="msg">${who}</span>` : ''}`;
       renderCols(); render(); $('sample').textContent = '';
       return;
