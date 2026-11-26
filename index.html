@@ -215,7 +215,7 @@ const store = { get(k,d){ try{ const v=localStorage.getItem(k); return v?JSON.pa
 const isCode = c => /^[0-9A-Z]{4,8}$/.test(c || '');
 
 const FIELDS = [
-  {k:'title',l:'案名',w:'w'},{k:'address',l:'路段',w:'w'},
+  {k:'title',l:'案名',w:'w'},{k:'community',l:'社區'},{k:'address',l:'路段',w:'w'},
   {k:'price',l:'總價(萬)',n:1,w:'xs',fix:1},{k:'area',l:'登記坪數',n:1,w:'xs',fix:1},
   {k:'withPark',l:'含車單價',calc:1},{k:'unit',l:'扣車單價',calc:1,fix:1},
   {k:'mainArea',l:'主建物坪',n:1,w:'xs'},{k:'age',l:'屋齡(年)',n:1,w:'xs'},{k:'floor',l:'樓層'},
@@ -272,6 +272,7 @@ function parseText(t){
       area: num(g(/(?:登記坪數|登記建坪|建坪|總坪數|坪數)[:：]?\s*約?\s*([\d.]+)\s*坪/)),
       mainArea: num(g(/主建物[:：]?\s*約?\s*([\d.]+)\s*坪/)),
       age: num(g(/屋齡[:：]?\s*約?\s*([\d.]+)\s*年/)),
+      community: g(/社區(?:名稱)?[:：]\s*([^\s，,]+)/),
       floor: g(/(?:樓層|樓別)[:：]?\s*([^\s，,]+)/),
       layout: g(/格局[:：]?\s*([^\s，,]+)/) || g(/(\d房\d廳\d衛)/),
       mgmtFee: num(g(/管理費[:：]?\s*約?\s*([\d,]+)/)),
@@ -410,7 +411,7 @@ $('cols').addEventListener('change', e => {
 const FONT = '"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif';
 function imgRows(list){
   const rows = [
-    ['路段', p => p.address], ['總價', p => num(p.price) ? fN(num(p.price)) + ' 萬' + (num(p.origPrice) && num(p.origPrice) > num(p.price) ? `（原 ${fN(num(p.origPrice))}）` : '') : ''],
+    ['社區', p => p.community], ['路段', p => p.address], ['總價', p => num(p.price) ? fN(num(p.price)) + ' 萬' + (num(p.origPrice) && num(p.origPrice) > num(p.price) ? `（原 ${fN(num(p.origPrice))}）` : '') : ''],
     ['登記坪數', p => num(p.area) ? f2(num(p.area)) + ' 坪' : ''], ['主建物', p => num(p.mainArea) ? f2(num(p.mainArea)) + ' 坪' : ''],
     ['含車單價', p => { const v = calc(p).withPark; return v ? f2(v) + ' 萬/坪' : ''; }],
     ['扣車單價', p => { const c = calc(p); return c.unit ? f2(c.unit) + ' 萬/坪' : (c.why || ''); }],
@@ -506,7 +507,7 @@ $('copyText').addEventListener('click', async () => {
   sorted().forEach((p, i) => {
     const c = calc(p);
     lines.push(`${i+1}. ${p.title || p.code}${p.id === best ? '（扣車單價最低）' : ''}`);
-    lines.push(`　${[p.address, p.layout, p.floor, num(p.age) != null ? p.age + '年' : ''].filter(Boolean).join('｜')}`);
+    lines.push(`　${[p.community, p.address, p.layout, p.floor, num(p.age) != null ? p.age + '年' : ''].filter(Boolean).join('｜')}`);
     lines.push(`　總價 ${fN(num(p.price))} 萬｜${f2(num(p.area))} 坪｜扣車單價 ${c.unit ? f2(c.unit) + ' 萬/坪' : c.why}`);
     if (p.url) lines.push('　' + p.url);
   });
@@ -526,7 +527,7 @@ $('shImg').addEventListener('click', async () => {
 });
 
 // ---- share link: whole report packed into the URL hash ----
-const KEEP = ['code','title','address','price','origPrice','area','mainArea','age','floor','layout','direction','parkType','parkArea','parkPrice','parkEst','mgmtFee','units','elevator','builtDate','parkNo','memo','url'];
+const KEEP = ['code','title','community','address','price','origPrice','area','mainArea','age','floor','layout','direction','parkType','parkArea','parkPrice','parkEst','mgmtFee','units','elevator','builtDate','parkNo','memo','url'];
 const b64u = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 const unb64u = s => Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')), c => c.charCodeAt(0));
 async function pack(obj){
@@ -557,6 +558,8 @@ const GRIP = '<svg viewBox="0 0 20 20" aria-hidden="true"><g fill="currentColor"
 let tourOrder = store.get('pc-tour', []);
 const mapQ = q => 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q);
 const tAddr = p => String(p.tourAddr || p.address || '').trim();
+// Google 地圖用「社區名稱 + 地址」找，社區大樓比單純路段準確
+const tQuery = p => [String(p.community || '').trim(), tAddr(p)].filter(Boolean).join(' ');
 function tourList(){
   const ids = props.map(p => p.id);
   tourOrder = tourOrder.filter(id => ids.includes(id)).concat(ids.filter(id => !tourOrder.includes(id)));
@@ -571,7 +574,7 @@ function renderTour(){
       <button class="hdl" type="button" aria-label="拖拉調整 ${esc(p.title||p.code)} 的順序">${GRIP}</button>
       <span class="no">${on ? n : '–'}</span>
       <div>
-        <div class="nm">${esc(p.title || p.code || '未命名物件')}</div>
+        <div class="nm">${esc(p.title || p.code || '未命名物件')}${p.community ? ` <span class="msg" style="font-weight:400">· ${esc(p.community)}</span>` : ''}</div>
         <div class="f">
           <input class="n" data-t="tourTime" value="${esc(p.tourTime||'')}" placeholder="時間" aria-label="帶看時間">
           <input data-t="tourAddr" value="${esc(tAddr(p))}" placeholder="詳細地址（例：台中市南區忠明南路 123 號）" aria-label="詳細地址">
@@ -599,12 +602,14 @@ function buildTourText(){
   const L = [`【帶看路線】${dl}`, `${client ? client + '您好，' : ''}以下是${when}的帶看順序：`, ''];
   if (meet) L.push(`集合地點：${meet}`, mapQ(meet), '');
   list.forEach((p, i) => {
-    const a = tAddr(p);
+    const a = tAddr(p), q = tQuery(p);
     L.push(`${i+1}. ${p.tourTime ? p.tourTime + ' ' : ''}${p.title || p.code || '物件'}`);
-    if (a) { L.push(`地址：${a}`); L.push(`地圖：${mapQ(a)}`); }
+    if (p.community) L.push(`社區：${p.community}`);
+    if (a) L.push(`地址：${a}`);
+    if (q) L.push(`地圖：${mapQ(q)}`);
     L.push('');
   });
-  const stops = (meet ? [meet] : []).concat(list.map(tAddr).filter(Boolean));
+  const stops = (meet ? [meet] : []).concat(list.map(tQuery).filter(Boolean));
   let route = '';
   if (stops.length >= 2){
     const u = new URL('https://www.google.com/maps/dir/');
@@ -616,8 +621,8 @@ function buildTourText(){
   if (who) L.push(who);
   $('tourText').value = list.length ? L.join('\n').trim() : '';
   $('routeLink').style.display = route ? '' : 'none'; if (route) $('routeLink').href = route;
-  const miss = list.filter(p => !tAddr(p)).length;
-  $('tmsg').textContent = miss ? `有 ${miss} 間還沒填地址，地圖連結不會出現。` : '';
+  const miss = list.filter(p => !tQuery(p)).length;
+  $('tmsg').textContent = miss ? `有 ${miss} 間還沒填社區或地址，地圖連結不會出現。` : '';
 }
 $('tlist').addEventListener('input', e => {
   const i = e.target.closest('input[data-t]'); if (!i || i.type === 'checkbox') return;
