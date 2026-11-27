@@ -116,8 +116,17 @@ def safe(name):
     return re.sub(r'[\\/:*?"<>|]', '_', name)
 
 
+DIAG = {}
+
+
 def read_csv(url, need):
     b = get(url, tries=2)
+    if (not b or len(b) < 40) and '_land.csv' in url:
+        b = get(url.replace('_land.csv', '_LAND.csv'), tries=1) or b  # 檔名大小寫
+    tag = re.sub(r'.*fileName=', '', url)
+    if tag not in DIAG and b:
+        DIAG[tag] = 1
+        print('diag', url[-60:], len(b), repr(decode(b[:300]).splitlines()[:2]), flush=True)
     if not b or len(b) < 40:
         return None, None
     try:
