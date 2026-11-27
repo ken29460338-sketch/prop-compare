@@ -895,8 +895,9 @@ function renderTour(){
         <div class="nm">${esc(p.title || p.code || '未命名物件')}${p.community ? ` <span class="msg" style="font-weight:400">· ${esc(p.community)}</span>` : ''}</div>
         <div class="f">
           <input class="n" data-t="tourTime" value="${esc(p.tourTime||'')}" placeholder="時間" aria-label="帶看時間">
-          <input data-t="tourAddr" value="${esc(tAddr(p))}" placeholder="詳細地址（例：台中市南區忠明南路 123 號）" aria-label="詳細地址">
+          <input data-t="tourAddr" value="${esc(tAddr(p))}" placeholder="詳細地址（例：台中市南區忠明南路 123 號）" aria-label="詳細地址" title="地址錯了可以直接改，改完按 Enter 或點別處，會重新定位並重算車程">
         </div>
+        ${p.lat == null && tAddr(p) && !isLocating() ? `<div class="msg" style="color:#b54708;font-size:13px;margin-top:4px">⚠ 找不到這個地址的位置，請改寫地址（含路名、門牌），或在地圖上拖拉圖釘</div>` : p.addrManual && p.lat != null ? `<div class="msg" style="font-size:12px;margin-top:4px">📍 已依你填的地址定位${p.geoAddr ? `：${esc(p.geoAddr)}` : ''}</div>` : ''}
         <div class="leg" data-leg="${esc(p.id)}"></div>
       </div>
       <div class="side">
@@ -1129,9 +1130,10 @@ function applyOfficial(p, d){
   if (num(v.parkPrice) && !num(p.parkPrice)) { p.parkPrice = num(v.parkPrice); p.parkEst = false; }
   for (const k of ['floor','layout','direction','community','parkType','guard']) if (S(v[k])) p[k] = S(v[k]);
   if (/^https:\/\/res\.sinyi\.com\.tw\//.test(v.layoutImage || '')) p.layoutImage = v.layoutImage;
-  if (S(v.address) && (!p.address || S(v.address).includes(p.address))) p.address = S(v.address);
+  if (!p.addrManual && S(v.address) && (!p.address || S(v.address).includes(p.address))) p.address = S(v.address);
   if (!p.title && S(v.title)) p.title = S(v.title);
-  if (num(v.lat) && num(v.lng)) { p.lat = num(v.lat); p.lng = num(v.lng); p.manualLoc = true; p.locOfficial = true; }
+  // 手動改過地址的物件，以使用者填的地址定位為準，不被官網座標蓋掉
+  if (!p.addrManual && num(v.lat) && num(v.lng)) { p.lat = num(v.lat); p.lng = num(v.lng); p.manualLoc = true; p.locOfficial = true; }
   p.officialAt = Date.now(); p.officialVer = 3; delete p.officialFail;
 }
 // 中繼服務會把讀過的物件存 6 小時，再讀幾乎立即回來；第一次讀新物件要走 Firecrawl，約 10–40 秒。
@@ -1199,7 +1201,8 @@ $('reBtn').addEventListener('click', () => {
 
 
 // ---- 位置地圖 ----
-let map = null, mapLayer = null, locating = false, locTimer = null;
+let map = null, mapLayer = null, locating = false, locTimer = null, locAgain = false;
+function isLocating(){ try { return locating; } catch(e){ return false; } }
 const geoCache = store.get('pc-geo', {});
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 // OpenStreetMap 對連寫的台灣地址辨識差，拆成「路名, 區, 市」再搜
@@ -1228,6 +1231,24 @@ const locQueries = p => {
   if (raw) q.push(raw);
   if (road && !city) q.push(road);
   return [...new Set(q)];
+};
+// Google 地址定位（經中繼服務；比 OpenStreetMap 準，門牌也找得到）。回傳 [lat, lng, 地址]；找不到回 null；服務不能用時丟錯讓呼叫端改用 OSM
+async function geocodeG(q){
+  const k = 'G|' + q; if (k in geoCache) return geoCache[k];
+  const r = await fetch(`${FETCH_URL}geo?q=${encodeURIComponent(q)}`, {cache: 'no-store'});
+  if (r.status === 404) { geoCache[k] = null; store.set('pc-geo', geoCache); return null; }
+  const j = await r.json().catch(() => null);
+  if (!r.ok || !j || j.lat == null) throw new Error('geoG');
+  const v = [+j.lat, +j.lng, j.addr || '']; geoCache[k] = v; store.set('pc-geo', geoCache); return v;
+}
+// 給 Google 用的查詢：完整地址（沒寫城市就補上其他物件的城市），再來是社區名稱
+const gQueries = p => {
+  const raw = String(p.tourAddr || p.address || '').trim(), c = String(p.community || '').trim();
+  const {city, dist} = splitAddr(raw), city2 = city || cityHint();
+  const q = [];
+  if (raw) q.push(city ? raw : city2 + raw);
+  if (c) q.push([city2, dist, c].join(''));
+  return [...new Set(q.filter(x => x.length >= 3))];
 };
 async function geocode(q){
   if (q in geoCache) return geoCache[q];
@@ -1277,27 +1298,34 @@ function drawMap(){
     : tour ? (roadOk ? `編號依「帶看路線」的順序，紅線為開車路線，預估總車程約 ${fmtDur(routeInfo.total)}（${routeNote()}）。` : '編號依「帶看路線」的順序，虛線為帶看動線。') : '';
 }
 async function locateAll(force){
-  if (locating) return; locating = true; $('locBtn').disabled = true;
+  if (locating){ locAgain = true; return; } locating = true; $('locBtn').disabled = true;
   try {
     const todo = props.filter(p => !waitsOfficial(p) && (force ? !p.manualLoc : (p.lat == null && !p.manualLoc)));
     let k = 0;
     for (const p of todo){
       k++; $('mapMsg').textContent = `定位中 ${k}／${todo.length}…`;
-      let hit = null;
-      for (const q of locQueries(p)){ try { hit = await geocode(q); } catch(e){ hit = null; } if (hit) break; }
-      if (hit){ p.lat = hit[0]; p.lng = hit[1]; } else { delete p.lat; delete p.lng; }
+      let hit = null, gOk = !!FETCH_URL;
+      if (gOk) for (const q of gQueries(p)){ try { hit = await geocodeG(q); } catch(e){ gOk = false; break; } if (hit) break; }
+      if (!hit) for (const q of locQueries(p)){ try { hit = await geocode(q); } catch(e){ hit = null; } if (hit) break; }
+      if (hit){ p.lat = hit[0]; p.lng = hit[1]; p.geoAddr = hit[2] || ''; } else { delete p.lat; delete p.lng; delete p.geoAddr; }
     }
     save();
-  } finally { locating = false; $('locBtn').disabled = false; drawMap(); }
+  } finally {
+    locating = false; $('locBtn').disabled = false;
+    if (!$('tour').hidden) renderTour(); else drawMap(); // 帶看路線會跟著重算車程
+    if (locAgain){ locAgain = false; setTimeout(() => locateAll(false), 0); } // 定位期間又改了地址
+  }
 }
 function scheduleLocate(){ clearTimeout(locTimer); locTimer = setTimeout(() => { if (props.some(p => p.lat == null && !p.manualLoc && !waitsOfficial(p) && locQueries(p).length)) locateAll(false); }, 600); }
 function resetLoc(p){ if (!p.manualLoc){ delete p.lat; delete p.lng; } }
+// 使用者手動改地址／社區：不管原本是官網座標還是拖拉過的，都改用新地址重新定位
+function relocateManual(p){ delete p.lat; delete p.lng; delete p.manualLoc; delete p.locOfficial; delete p.geoAddr; p.addrManual = true; }
 $('locBtn').addEventListener('click', () => {
   for (const p of props){ if (p.locOfficial) continue; delete p.manualLoc; delete p.lat; delete p.lng; }
   locateAll(true);
 });
-$('tbl').addEventListener('change', e => { const i = e.target.closest('input[data-k]'); if (!i || !['address','community'].includes(i.dataset.k)) return; const p = props.find(q => q.id === i.dataset.id); if (p){ resetLoc(p); save(); drawMap(); scheduleLocate(); } });
-$('tlist').addEventListener('change', e => { const i = e.target.closest('input[data-t=tourAddr]'); if (!i) return; const p = props.find(q => q.id === i.closest('.ti').dataset.id); if (p){ resetLoc(p); save(); drawMap(); scheduleLocate(); } });
+$('tbl').addEventListener('change', e => { const i = e.target.closest('input[data-k]'); if (!i || !['address','community'].includes(i.dataset.k)) return; const p = props.find(q => q.id === i.dataset.id); if (p){ relocateManual(p); save(); drawMap(); locateAll(false); } });
+$('tlist').addEventListener('change', e => { const i = e.target.closest('input[data-t=tourAddr]'); if (!i) return; const p = props.find(q => q.id === i.closest('.ti').dataset.id); if (p){ relocateManual(p); save(); drawMap(); locateAll(false); } });
 
 async function boot(){
   const m = location.hash.match(/^#d=(.+)$/);
