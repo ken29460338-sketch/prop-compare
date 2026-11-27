@@ -223,7 +223,7 @@ button.sec{background:var(--panel);border-color:var(--rule)}
     <div class="row" style="justify-content:space-between">
       <h2 style="margin:0">社區行情（實價登錄）</h2>
       <div class="span" role="group" aria-label="成交期間">
-        <button class="s" data-span="auto">自動</button><button class="s" data-span="3">近 3 年</button><button class="s" data-span="6">近 6 年</button><button class="s" data-span="all">全部（101 年起）</button>
+        <button class="s" data-span="auto">自動</button><button class="s" data-span="1">近 1 年</button><button class="s" data-span="2">近 2 年</button><button class="s" data-span="3">近 3 年</button><button class="s" data-span="6">近 6 年</button><button class="s" data-span="all">全部（101 年起）</button>
       </div>
     </div>
     <div id="lvrList"></div>
@@ -1410,7 +1410,7 @@ function lvrMatch(p, rows, loc){
 function lvrWindow(hit){
   const now = rocNow(), cut = y => now - y * 10000;
   if (lvrSpan === 'all') return {list: hit, label: '全部'};
-  if (lvrSpan === '3' || lvrSpan === '6') return {list: hit.filter(r => r[0] >= cut(+lvrSpan)), label: `近 ${lvrSpan} 年`};
+  if (/^\d+$/.test(lvrSpan)) return {list: hit.filter(r => r[0] >= cut(+lvrSpan)), label: `近 ${lvrSpan} 年`};
   for (const y of [3, 6]){ const l = hit.filter(r => r[0] >= cut(y)); if (l.length >= 3) return {list: l, label: `近 ${y} 年`}; }
   return {list: hit, label: '全部（近年成交太少，已往前拉）'};
 }
@@ -1430,7 +1430,7 @@ const landPing = r => r[22] ? r[22] * 0.3025 : null; // ㎡→坪（先用未四
 function lvrSpanPick(list, min){ // 依目前期間設定挑資料；自動模式少於 min 筆就往前拉
   const now = rocNow(), cut = y => now - y * 10000;
   if (lvrSpan === 'all') return {list, label: '全部'};
-  if (lvrSpan === '3' || lvrSpan === '6') return {list: list.filter(r => r[0] >= cut(+lvrSpan)), label: `近 ${lvrSpan} 年`};
+  if (/^\d+$/.test(lvrSpan)) return {list: list.filter(r => r[0] >= cut(+lvrSpan)), label: `近 ${lvrSpan} 年`};
   for (const y of [3, 6]){ const l = list.filter(r => r[0] >= cut(y)); if (l.length >= min) return {list: l, label: `近 ${y} 年`}; }
   return {list, label: '全部（近年成交太少，已往前拉）'};
 }
