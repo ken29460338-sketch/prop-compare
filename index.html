@@ -435,7 +435,7 @@ function cellHtml(p, r){
 }
 function render(){
   renderCols();
-  const best = bestId(), list = sorted(), rows = visibleRows();
+  const best = null, list = sorted(), rows = visibleRows(); // 不標示最低價，讓客戶自己比較
   if (!props.length){ $('tbl').innerHTML = '<tbody><tr><td class="empty">還沒有物件。上方貼上物件訊息，或按「手動新增一筆」。</td></tr></tbody>'; }
   else {
     const head = '<thead><tr><th class="rowh">物件</th>' + list.map((p, i) => {
@@ -448,7 +448,7 @@ function render(){
     $('tbl').style.setProperty('--fs', fontScale);
   }
   $('sample').textContent = isSample ? '目前顯示的是範例資料，貼上你的物件後會自動取代。' : '';
-  renderSummary(best); renderBars(best);
+  renderSummary(); renderBars();
   if (typeof renderTour === 'function' && !location.hash.startsWith('#d=')) renderTour();
   if (typeof drawMap === 'function') { drawMap(); scheduleLocate(); }
   if (typeof renderLayouts === 'function') renderLayouts();
@@ -457,21 +457,20 @@ function render(){
 function renderSummary(best){
   const prices = props.map(p => num(p.price)).filter(v => v != null);
   const units = props.map(p => calc(p).unit).filter(v => v != null);
-  const bp = props.find(p => p.id === best);
   const rng = a => a.length ? (a.length > 1 ? `${fN(Math.min(...a))}–${fN(Math.max(...a))}` : fN(a[0])) : '—';
   const avg = units.length ? units.reduce((s,v)=>s+v,0)/units.length : null;
   $('sum').innerHTML = `
     <div><small>比較物件</small><b>${props.length} 筆</b></div>
     <div><small>總價區間（萬）</small><b>${rng(prices)}</b></div>
     <div><small>扣車單價 平均（萬／坪）</small><b>${avg!=null?f2(avg):'—'}</b></div>
-    <div><small>扣車單價最低</small><b class="t">${bp?esc(bp.title||bp.code)+' · '+f2(calc(bp).unit):'—'}</b></div>`;
+    <div><small>扣車單價區間（萬／坪）</small><b>${units.length ? (units.length > 1 ? `${f2(Math.min(...units))}–${f2(Math.max(...units))}` : f2(units[0])) : '—'}</b></div>`;
 }
 
 function renderBars(best){
   const rows = props.map(p => ({p, u: calc(p).unit})).filter(r => r.u != null).sort((a,b) => a.u - b.u);
   if (!rows.length){ $('bars').innerHTML = '<p class="msg">補齊總價、坪數與車位資料後會出現在這裡。</p>'; return; }
   const max = Math.max(...rows.map(r => r.u));
-  $('bars').innerHTML = rows.map(r => `<div class="bar ${r.p.id===best?'best':''}"><span class="t">${esc(r.p.title||r.p.code||'未命名')}</span><span class="k"><i style="width:${(r.u/max*100).toFixed(1)}%"></i></span><span class="v n">${f2(r.u)}</span></div>`).join('');
+  $('bars').innerHTML = rows.map(r => `<div class="bar"><span class="t">${esc(r.p.title||r.p.code||'未命名')}</span><span class="k"><i style="width:${(r.u/max*100).toFixed(1)}%"></i></span><span class="v n">${f2(r.u)}</span></div>`).join('');
 }
 
 // ---- events ----
@@ -588,7 +587,7 @@ function drawIcon(ctx, k, x, y, size, color){
   ctx.stroke(new Path2D(ICONS[k] || '')); ctx.restore();
 }
 function drawImage(){
-  const list = sorted(), best = bestId();
+  const list = sorted(), best = null;
   const rows = visibleRows().filter(r => r.k !== 'title' && list.some(p => String(r.show(p) || '').trim()));
   const n = Math.max(list.length, 1), S = 2, PAD = 28, GAP = 12, LW = 300;
   const CW = n <= 3 ? 430 : n === 4 ? 380 : 330;
@@ -716,7 +715,7 @@ const mx = (lon, z) => (lon + 180) / 360 * 256 * 2 ** z;
 const my = (lat, z) => { const r = lat * Math.PI / 180; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 256 * 2 ** z; };
 const loadTile = src => new Promise(res => { const im = new Image(); im.crossOrigin = 'anonymous'; const t = setTimeout(() => res(null), 8000); im.onload = () => { clearTimeout(t); res(im); }; im.onerror = () => { clearTimeout(t); res(null); }; im.src = src; });
 async function drawMapPage(withTiles = true){
-  const list = sorted(), best = bestId();
+  const list = sorted(), best = null;
   const pts = list.map((p, i) => ({p, i})).filter(o => o.p.lat != null && o.p.lng != null);
   if (!pts.length) return null;
   const S = 2, W = 1190, H = 842, PAD = 28, MT = 96;
@@ -794,7 +793,7 @@ $('cpImg').addEventListener('click', async () => {
   catch(e){ $('omsg').textContent = '這個瀏覽器不允許複製圖片，請改用下載圖片。'; }
 });
 $('copyText').addEventListener('click', async () => {
-  const best = bestId(); const client = $('client').value.trim();
+  const best = null; const client = $('client').value.trim();
   const lines = [(client ? client + ' 您好，' : '') + ($('note').value.trim() || '以下為您推薦的比較物件'), ''];
   sorted().forEach((p, i) => {
     const c = calc(p);
@@ -1107,7 +1106,7 @@ function initMap(){
 function drawMap(){
   if (!window.L){ $('mapMsg').textContent = '地圖元件沒有載入，請檢查網路後重新整理。'; return; }
   initMap(); mapLayer.clearLayers();
-  const shared = location.hash.startsWith('#d='), best = bestId(), pts = [];
+  const shared = location.hash.startsWith('#d='), best = null, pts = [];
   const list = sorted();
   list.forEach((p, i) => {
     if (p.lat == null || p.lng == null) return;
