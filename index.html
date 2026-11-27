@@ -122,6 +122,27 @@ button.sec{background:var(--panel);border-color:var(--rule)}
 .lcard div{padding:10px 12px;font-size:14px}
 .lcard b{display:block;font-size:15px;line-height:1.35;margin-bottom:2px}
 .lcard .none{display:grid;place-items:center;height:100%;color:#888;font-size:13px}
+#tbl{border-collapse:separate;border-spacing:0;font-size:15px;min-width:100%}
+#tbl th,#tbl td{border-bottom:1px solid var(--rule);border-right:1px solid var(--rule);padding:10px 12px;text-align:center;vertical-align:middle;line-height:1.45}
+#tbl thead th{background:color-mix(in srgb,var(--brick) 9%,var(--panel));color:var(--ink);font-size:15px;font-weight:700;position:static}
+#tbl .rowh{position:sticky;left:0;z-index:1;background:color-mix(in srgb,var(--bg) 55%,var(--panel));text-align:left;min-width:150px;max-width:170px;font-weight:700;color:var(--ink);white-space:normal}
+#tbl thead .rowh{z-index:2;text-align:center}
+#tbl td{min-width:190px;cursor:pointer;background:var(--panel)}
+#tbl td:hover{background:color-mix(in srgb,var(--brick) 5%,var(--panel))}
+#tbl td.bc,#tbl th.bc{box-shadow:inset 0 0 0 9999px color-mix(in srgb,var(--brick) 7%,transparent)}
+#tbl tr.st td{font-weight:700;color:var(--brick);font-size:16px}
+#tbl tr.st td .warn{color:var(--mute);font-weight:400;font-size:13px}
+#tbl .ph{color:var(--mute);font-size:13px;opacity:.6}
+#tbl .chd{display:flex;align-items:center;justify-content:center;gap:6px}
+#tbl .x{min-height:28px;width:28px;padding:0;border:1px solid var(--rule);border-radius:50%;font-size:12px;color:var(--mute);background:var(--panel);flex:none;margin-right:6px}
+#tbl .x:hover{color:var(--brick);border-color:var(--brick)}
+#tbl td.ed{cursor:default;background:var(--panel);box-shadow:inset 0 0 0 2px var(--brick)}
+.edl{display:flex;gap:6px;align-items:center;margin:3px 0;font-size:12px;color:var(--mute);text-align:left}
+.edl span{width:5.5em;flex:none}
+.edl input{font-size:15px;padding:5px 7px}
+.srtl{font-size:13px;color:var(--mute);display:flex;gap:6px;align-items:center;border:0!important;background:none!important;padding:0!important}
+.srtl select{width:auto;font-size:14px;padding:4px 8px}
+.drop{display:block;font-size:12px;font-weight:400}
 @media(prefers-reduced-motion:reduce){.bar .k i{transition:none}}
 @media(max-width:820px){.top,.low{grid-template-columns:minmax(0,1fr)}.sum{grid-template-columns:repeat(2,minmax(0,1fr))}.sum div:nth-child(2){border:0}}
 @media(max-width:600px){.bar{grid-template-columns:minmax(0,1fr) 5.5em}.bar .k{grid-column:1/-1;grid-row:2}.grid2{grid-template-columns:minmax(0,1fr)}}
@@ -156,7 +177,7 @@ button.sec{background:var(--panel);border-color:var(--rule)}
   </div>
 
   <div class="sum" id="sum"></div>
-  <p class="formula">扣車單價 ＝（總價 − 車位價）÷（登記坪數 − 車位坪數）。車位資料不足時標示原因，不拿含車單價充數；確定無車位時兩者相同。點欄位標題排序。</p>
+  <p class="formula">點任一格就能修改，按 Enter 或點別處儲存；按列前的 ⊗ 可隱藏整列。平均單價＝總價÷登記坪數；扣車單價＝（總價−車位價）÷（登記坪數−車位坪數），車位資料不足時標示原因。</p>
   <div class="cols" id="cols" role="group" aria-label="顯示欄位"></div>
   <div class="scroll"><table id="tbl"></table></div>
   <p class="msg" id="sample" style="margin:6px 0 0"></p>
@@ -258,18 +279,38 @@ const fN = v => v == null ? '' : (Math.round(v*100)/100).toLocaleString('zh-TW')
 const store = { get(k,d){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):d }catch(e){ return d } }, set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)) }catch(e){} } };
 const isCode = c => /^[0-9A-Z]{4,8}$/.test(c || '');
 
-const FIELDS = [
-  {k:'title',l:'案名',w:'w'},{k:'community',l:'社區'},{k:'address',l:'路段',w:'w'},
-  {k:'price',l:'總價(萬)',n:1,w:'xs',fix:1},{k:'area',l:'登記坪數',n:1,w:'xs',fix:1},
-  {k:'withPark',l:'含車單價',calc:1},{k:'unit',l:'扣車單價',calc:1,fix:1},
-  {k:'mainArea',l:'主建物坪',n:1,w:'xs'},{k:'age',l:'屋齡(年)',n:1,w:'xs'},{k:'floor',l:'樓層'},
-  {k:'layout',l:'格局'},{k:'direction',l:'朝向',w:'xs'},
-  {k:'parkType',l:'車位',ph:'有/無/坡平…'},{k:'parkArea',l:'車位坪數',n:1,w:'xs'},{k:'parkPrice',l:'車位價(萬)',n:1,w:'xs'},
-  {k:'mgmtFee',l:'管理費/月',n:1,w:'xs'},{k:'units',l:'總戶數',w:'xs'},{k:'elevator',l:'電梯',w:'xs'},
-  {k:'builtDate',l:'建築完成日'},{k:'parkNo',l:'車位編號',w:'xs'},{k:'memo',l:'備註',w:'w'}
+const FIELD = {
+  title:{l:'案名'}, community:{l:'社區'}, area:{l:'登記坪數',n:1}, mainArea:{l:'主建物',n:1}, balcony:{l:'陽台',n:1},
+  layout:{l:'格局',ph:'3房2廳2衛'}, builtDate:{l:'完成日',ph:'2016/05'}, age:{l:'屋齡(年)',n:1}, floor:{l:'樓層',ph:'8樓/12樓'},
+  unitsPerFloor:{l:'該層戶數',n:1}, units:{l:'總戶數',n:1}, parkType:{l:'車位類型',ph:'坡道平面／無'}, parkArea:{l:'車位坪數',n:1},
+  parkPrice:{l:'車位價(萬)',n:1}, guard:{l:'警衛管理',ph:'全天候'}, mgmtFee:{l:'管理費(元/月)',n:1}, address:{l:'地址'},
+  direction:{l:'朝向'}, memo:{l:'備註'}, price:{l:'總價(萬)',n:1}
+};
+const nf = v => String(Math.round(v * 100) / 100);
+const ROWS = [
+  {k:'title', l:'案名', f:['title','community'], show:p => p.title || ''},
+  {k:'area', l:'建物登記坪數', f:['area'], show:p => num(p.area) != null ? `約${nf(num(p.area))}坪` : ''},
+  {k:'mainBal', l:'主建物＋陽台坪數', f:['mainArea','balcony'], show:p => { const m = num(p.mainArea), b = num(p.balcony); if (m == null && b == null) return ''; return `約${nf((m||0)+(b||0))}坪（主建物${nf(m||0)}＋陽台${nf(b||0)}）`; }},
+  {k:'layout', l:'格局', f:['layout'], show:p => p.layout || ''},
+  {k:'age', l:'建築完成日／屋齡', f:['builtDate','age'], show:p => [p.builtDate, num(p.age) != null ? `約${nf(num(p.age))}年` : ''].filter(Boolean).join('／')},
+  {k:'floor', l:'樓層', f:['floor'], show:p => String(p.floor || '').replace(/\//g, '／')},
+  {k:'upf', l:'該層戶數', f:['unitsPerFloor'], show:p => num(p.unitsPerFloor) != null ? `${nf(num(p.unitsPerFloor))}戶` : ''},
+  {k:'units', l:'總戶數', f:['units'], show:p => num(p.units) != null ? `${nf(num(p.units))}戶` : ''},
+  {k:'park', l:'車位資料', f:['parkType','parkArea','parkPrice'], show:p => {
+    const t = String(p.parkType || '').trim(); if (!t) return ''; if (t === '無' || t === '無車位') return '無車位';
+    let s = /車位$/.test(t) ? t : t + '車位';
+    if (num(p.parkArea)) s += `，${nf(num(p.parkArea))}坪`;
+    if (num(p.parkPrice)) s += `／${fN(num(p.parkPrice))}萬${p.parkEst ? '（估）' : ''}`;
+    return s; }},
+  {k:'mgmt', l:'警衛管理／管理費', f:['guard','mgmtFee'], show:p => [p.guard, num(p.mgmtFee) ? `月${fN(num(p.mgmtFee))}元` : ''].filter(Boolean).join('／')},
+  {k:'address', l:'地址', f:['address'], show:p => p.address || ''},
+  {k:'direction', l:'朝向', f:['direction'], show:p => p.direction || ''},
+  {k:'memo', l:'備註', f:['memo'], show:p => p.memo || ''},
+  {k:'total', l:'總價／平均單價', f:['price'], strong:1, show:p => { const c = calc(p); return num(p.price) ? `${fN(num(p.price))}萬／${c.withPark ? f2(c.withPark) + '萬' : '—'}` : ''; }},
+  {k:'unit', l:'扣車單價', f:['parkType','parkArea','parkPrice'], strong:1, show:p => { const c = calc(p); return c.unit ? `${f2(c.unit)}萬` : c.why; }}
 ];
-const SORTABLE = {price:1,area:1,withPark:1,unit:1,mainArea:1,age:1,mgmtFee:1};
-const DEFAULT_HIDE = ['mainArea','direction','units','elevator','builtDate','parkNo','memo'];
+const SORTS = [['unit','扣車單價'],['price','總價'],['withPark','平均單價'],['area','登記坪數'],['age','屋齡'],['mgmtFee','管理費']];
+const DEFAULT_HIDE = ['direction','memo'];
 
 const SAMPLE = [
   {id:'s1',code:'範例1',title:'園道景觀三房平車',address:'台中市南區忠明南路',price:2180,origPrice:2380,area:56.2,mainArea:27.23,age:13.1,floor:'10樓/15樓',layout:'3房2廳2衛',parkType:'坡道平面',parkArea:9.01,parkPrice:250,mgmtFee:2845,elevator:'有'},
@@ -280,7 +321,7 @@ const SAMPLE = [
 let props = store.get('pc-props', null);
 let isSample = false;
 if (!props || !props.length) { props = SAMPLE.map(p => ({...p})); isSample = true; }
-let hide = store.get('pc-hide', DEFAULT_HIDE);
+let hide = store.get('pc-hide2', DEFAULT_HIDE);
 let sortKey = 'unit', sortAsc = true;
 let lastCanvas = null, replaceMode = false;
 
@@ -333,7 +374,7 @@ function parseText(t){
 function save(){ if (!isSample) store.set('pc-props', props); }
 
 // ---- render ----
-function visible(){ return FIELDS.filter(f => f.fix || !hide.includes(f.k)); }
+function visibleRows(){ return ROWS.filter(r => !hide.includes(r.k)); }
 function sorted(){
   const val = p => { if (sortKey === 'withPark' || sortKey === 'unit') return calc(p)[sortKey]; return num(p[sortKey]); };
   return props.slice().sort((a,b) => { const x = val(a), y = val(b); if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1; return sortAsc ? x - y : y - x; });
@@ -341,35 +382,29 @@ function sorted(){
 function bestId(){ let b = null, v = Infinity; for (const p of props){ const u = calc(p).unit; if (u != null && u < v){ v = u; b = p.id; } } return b; }
 
 function renderCols(){
-  $('cols').innerHTML = FIELDS.filter(f => !f.fix).map(f => `<label><input type="checkbox" data-col="${f.k}" ${hide.includes(f.k)?'':'checked'}>${esc(f.l)}</label>`).join('');
+  const hidden = ROWS.filter(r => hide.includes(r.k));
+  $('cols').innerHTML = `<label class="srtl">排序 <select id="sortSel">${SORTS.map(([k,l]) => `<option value="${k}" ${k===sortKey?'selected':''}>${l}</option>`).join('')}</select></label>
+    <button class="s" id="sortDir">${sortAsc ? '由低到高' : '由高到低'}</button>` +
+    (hidden.length ? `<span class="msg">已隱藏：</span>` + hidden.map(r => `<button class="s" data-show="${r.k}">${esc(r.l)} ↺</button>`).join('') : '');
 }
-
+function cellHtml(p, r){
+  const t = r.show(p);
+  let extra = '';
+  if (r.k === 'total' && num(p.origPrice) && num(p.price) && num(p.origPrice) > num(p.price)) extra = `<span class="drop n">原 ${fN(num(p.origPrice))} 萬，降 ${fN(num(p.origPrice) - num(p.price))} 萬</span>`;
+  const warn = r.k === 'unit' && !calc(p).unit;
+  return t ? `<span class="${warn ? 'warn' : ''}">${esc(t)}</span>${extra}` : '<span class="ph">點此填寫</span>';
+}
 function render(){
-  const cols = visible(), best = bestId();
+  renderCols();
+  const best = bestId(), list = sorted(), rows = visibleRows();
   if (!props.length){ $('tbl').innerHTML = '<tbody><tr><td class="empty">還沒有物件。上方貼上物件訊息，或按「手動新增一筆」。</td></tr></tbody>'; }
   else {
-    const head = '<thead><tr>' + cols.map(f => {
-      const s = SORTABLE[f.k]; const on = sortKey === f.k;
-      return `<th class="${s?'srt':''} ${on?'on':''} ${f.n||f.calc?'r':''}" ${s?`data-sort="${f.k}" tabindex="0" aria-sort="${on?(sortAsc?'ascending':'descending'):'none'}"`:''}>${esc(f.l)}${on?(sortAsc?' ↑':' ↓'):''}</th>`;
-    }).join('') + '<th>編號</th><th></th></tr></thead>';
-    const body = '<tbody>' + sorted().map(p => {
-      const c = calc(p);
-      const tds = cols.map(f => {
-        if (f.k === 'withPark') return `<td class="calc n">${f2(c.withPark)}</td>`;
-        if (f.k === 'unit') return `<td class="calc n">${c.unit!=null?f2(c.unit):`<span class="warn">${esc(c.why)}</span>`}${p.id===best?'<span class="tag">最低</span>':''}</td>`;
-        const v = p[f.k] ?? '';
-        let extra = '';
-        if (f.k === 'price' && num(p.origPrice) && num(p.price) && num(p.origPrice) !== num(p.price)) {
-          const d = num(p.origPrice) - num(p.price);
-          extra = `<span class="old n">${fN(num(p.origPrice))}</span>${d>0?`<span class="drop n">降 ${fN(d)} 萬</span>`:''}`;
-        }
-        if (f.k === 'parkPrice' && p.parkEst) extra = '<span class="est">估</span>';
-        return `<td class="${f.n?'r':''}"><input class="${f.w||''} ${f.n?'n':''}" ${f.n?'type="number" step="any" inputmode="decimal"':''} data-id="${esc(p.id)}" data-k="${f.k}" value="${esc(v)}" placeholder="${esc(f.ph||'')}" aria-label="${esc((p.title||p.code)+' '+f.l)}">${extra}</td>`;
-      }).join('');
+    const head = '<thead><tr><th class="rowh">項目</th>' + list.map((p, i) => {
       const link = p.url && /^https:\/\//.test(p.url) ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.code)}</a>` : esc(p.code || '');
-      const fetchBtn = '';
-      return `<tr class="${p.id===best?'best':''}">${tds}<td style="white-space:nowrap">${link}<br><span class="msg" data-st="${esc(p.id)}" style="font-size:12px">${esc(p._st||'')}</span></td><td style="white-space:nowrap">${fetchBtn}<button class="s" data-del="${esc(p.id)}" aria-label="刪除">刪除</button></td></tr>`;
-    }).join('') + '</tbody>';
+      return `<th class="colh ${p.id===best?'bc':''}"><div class="chd"><b>${i+1}. ${esc(p.community || p.title || p.code || '未命名')}</b><button class="x" data-del="${esc(p.id)}" aria-label="刪除這間">✕</button></div><span class="msg">${link}${p.id===best?' <span class="tag">扣車最低</span>':''} <span data-st="${esc(p.id)}">${esc(p._st||'')}</span></span></th>`;
+    }).join('') + '</tr></thead>';
+    const body = '<tbody>' + rows.map(r => `<tr class="${r.strong ? 'st' : ''}"><th class="rowh"><button class="x" data-hide="${r.k}" aria-label="隱藏這列">⊗</button>${esc(r.l)}</th>` +
+      list.map(p => `<td class="${p.id===best?'bc':''}" data-id="${esc(p.id)}" data-row="${r.k}" tabindex="0">${cellHtml(p, r)}</td>`).join('') + '</tr>').join('') + '</tbody>';
     $('tbl').innerHTML = head + body;
   }
   $('sample').textContent = isSample ? '目前顯示的是範例資料，貼上你的物件後會自動取代。' : '';
@@ -432,23 +467,47 @@ $('applyEst').addEventListener('click', () => {
   $('emsg').textContent = n ? `已套用到 ${n} 筆（標示「估」）。沒填車位坪數的仍需補坪數。` : '沒有「有車位但未填車位價」的物件。';
   isSample = false; save(); render();
 });
-$('tbl').addEventListener('change', e => {
-  const i = e.target.closest('input[data-k]'); if (!i) return;
-  const p = props.find(q => q.id === i.dataset.id); if (!p) return;
-  const k = i.dataset.k; p[k] = i.type === 'number' ? (i.value === '' ? '' : num(i.value)) : i.value.trim();
-  if (k === 'parkPrice') p.parkEst = false;
-  if (k === 'code'){ p.url = isCode(p.code) ? 'https://www.sinyi.com.tw/buy/house/'+p.code : ''; }
+// 點格子就地編輯，離開格子或按 Enter 就存
+function openEditor(td){
+  if (td.classList.contains('ed') || location.hash.startsWith('#d=')) return;
+  const p = props.find(q => q.id === td.dataset.id), r = ROWS.find(x => x.k === td.dataset.row); if (!p || !r) return;
+  td.classList.add('ed');
+  td.innerHTML = r.f.map(k => { const m = FIELD[k]; return `<label class="edl"><span>${esc(m.l)}</span><input data-f="${k}" value="${esc(p[k] ?? '')}" placeholder="${esc(m.ph || '')}" ${m.n ? 'inputmode="decimal"' : ''}></label>`; }).join('');
+  const first = td.querySelector('input'); first.focus(); first.select();
+}
+function closeEditor(td){
+  const p = props.find(q => q.id === td.dataset.id); if (!p) return;
+  for (const i of td.querySelectorAll('input[data-f]')){
+    const k = i.dataset.f, m = FIELD[k], v = i.value.trim();
+    const nv = m.n ? (v === '' ? '' : num(v)) : v;
+    if (String(p[k] ?? '') !== String(nv ?? '')){
+      p[k] = nv;
+      if (k === 'parkPrice') p.parkEst = false;
+      if ((k === 'address' || k === 'community') && typeof resetLoc === 'function') { resetLoc(p); if (typeof scheduleLocate === 'function') scheduleLocate(); }
+    }
+  }
   isSample = false; save(); render();
-});
-function doSort(k){ if (sortKey === k) sortAsc = !sortAsc; else { sortKey = k; sortAsc = true; } render(); }
+}
 $('tbl').addEventListener('click', e => {
-  const th = e.target.closest('th[data-sort]'); if (th) return doSort(th.dataset.sort);
   const d = e.target.closest('[data-del]'); if (d){ props = props.filter(p => p.id !== d.dataset.del); isSample = false; save(); render(); return; }
+  const h = e.target.closest('[data-hide]'); if (h){ hide = [...hide, h.dataset.hide]; store.set('pc-hide2', hide); render(); return; }
+  if (e.target.closest('a')) return;
+  const td = e.target.closest('td[data-row]'); if (td) openEditor(td);
 });
-$('tbl').addEventListener('keydown', e => { const th = e.target.closest('th[data-sort]'); if (th && (e.key === 'Enter' || e.key === ' ')){ e.preventDefault(); doSort(th.dataset.sort); } });
-$('cols').addEventListener('change', e => {
-  const k = e.target.dataset.col; if (!k) return;
-  hide = e.target.checked ? hide.filter(x => x !== k) : [...hide, k]; store.set('pc-hide', hide); render();
+$('tbl').addEventListener('keydown', e => {
+  const td = e.target.closest('td[data-row]'); if (!td) return;
+  if (!td.classList.contains('ed') && (e.key === 'Enter' || e.key === ' ')){ e.preventDefault(); openEditor(td); return; }
+  if (td.classList.contains('ed') && e.key === 'Enter'){ e.preventDefault(); closeEditor(td); }
+  if (td.classList.contains('ed') && e.key === 'Escape'){ render(); }
+});
+$('tbl').addEventListener('focusout', e => {
+  const td = e.target.closest('td.ed'); if (!td) return;
+  setTimeout(() => { if (td.isConnected && !td.contains(document.activeElement)) closeEditor(td); }, 0);
+});
+$('cols').addEventListener('change', e => { if (e.target.id === 'sortSel'){ sortKey = e.target.value; render(); } });
+$('cols').addEventListener('click', e => {
+  if (e.target.id === 'sortDir'){ sortAsc = !sortAsc; render(); return; }
+  const b = e.target.closest('[data-show]'); if (b){ hide = hide.filter(x => x !== b.dataset.show); store.set('pc-hide2', hide); render(); }
 });
 ['agent','phone','store','client','note','estPrice'].forEach(id => {
   $(id).value = store.get('pc-'+id, '');
@@ -458,17 +517,7 @@ $('cols').addEventListener('change', e => {
 // ---- comparison image (canvas) ----
 const FONT = '"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif';
 function imgRows(list){
-  const rows = [
-    ['社區', p => p.community], ['路段', p => p.address], ['總價', p => num(p.price) ? fN(num(p.price)) + ' 萬' + (num(p.origPrice) && num(p.origPrice) > num(p.price) ? `（原 ${fN(num(p.origPrice))}）` : '') : ''],
-    ['登記坪數', p => num(p.area) ? f2(num(p.area)) + ' 坪' : ''], ['主建物', p => num(p.mainArea) ? f2(num(p.mainArea)) + ' 坪' : ''],
-    ['含車單價', p => { const v = calc(p).withPark; return v ? f2(v) + ' 萬/坪' : ''; }],
-    ['扣車單價', p => { const c = calc(p); return c.unit ? f2(c.unit) + ' 萬/坪' : (c.why || ''); }],
-    ['屋齡', p => num(p.age) != null ? fN(num(p.age)) + ' 年' : ''], ['樓層', p => p.floor], ['格局', p => p.layout], ['朝向', p => p.direction],
-    ['車位', p => { const t = String(p.parkType||'').trim(); if (!t) return ''; if (t === '無') return '無'; const bits = [t]; if (num(p.parkArea)) bits.push(f2(num(p.parkArea)) + '坪'); if (num(p.parkPrice)) bits.push(fN(num(p.parkPrice)) + '萬' + (p.parkEst ? '(估)' : '')); return bits.join(' / '); }],
-    ['管理費', p => num(p.mgmtFee) ? fN(num(p.mgmtFee)) + ' 元/月' : ''], ['總戶數', p => p.units], ['電梯', p => p.elevator],
-    ['建築完成日', p => p.builtDate], ['車位編號', p => p.parkNo], ['備註', p => p.memo]
-  ];
-  return rows.filter(([, fn]) => list.some(p => String(fn(p) ?? '').trim()));
+  return visibleRows().filter(r => r.k !== 'title').map(r => [r.l, p => r.show(p)]).filter(([, fn]) => list.some(p => String(fn(p) ?? '').trim()));
 }
 function wrap(ctx, text, w, maxLines){
   const out = []; let line = '';
@@ -483,7 +532,7 @@ function drawImage(){
   const W = PAD*2 + LW + CW*list.length, top = 118;
   const cv = $('cv'); const ctx = cv.getContext('2d');
   ctx.font = `700 15px ${FONT}`;
-  const titleLines = list.map(p => wrap(ctx, p.title || p.code || '未命名', CW - 20, 2));
+  const titleLines = list.map(p => wrap(ctx, p.community || p.title || p.code || '未命名', CW - 20, 2));
   const H = top + HH + rows.length*RH + 84;
   cv.width = W*S; cv.height = H*S; ctx.setTransform(S,0,0,S,0,0);
   ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,W,H);
@@ -508,7 +557,7 @@ function drawImage(){
     ctx.fillStyle = '#6b655e'; ctx.font = `500 14px ${FONT}`; ctx.fillText(label, PAD + 4, y + 25);
     list.forEach((p, i) => {
       const x = PAD + LW + CW*i; const v = String(fn(p) ?? '');
-      const strong = label === '扣車單價' || label === '總價';
+      const strong = label === '扣車單價' || label === '總價／平均單價';
       ctx.font = `${strong ? 700 : 400} ${strong ? 15 : 14}px ${FONT}`;
       ctx.fillStyle = label === '扣車單價' && p.id === best ? '#c8371e' : (label === '扣車單價' && !calc(p).unit ? '#a59e95' : '#141414');
       ctx.fillText(wrap(ctx, v, CW - 20, 1)[0] || '', x + 10, y + 25);
@@ -643,7 +692,7 @@ $('shImg').addEventListener('click', async () => {
 });
 
 // ---- share link: whole report packed into the URL hash ----
-const KEEP = ['layoutImage','lat','lng','code','title','community','address','price','origPrice','area','mainArea','age','floor','layout','direction','parkType','parkArea','parkPrice','parkEst','mgmtFee','units','elevator','builtDate','parkNo','memo','url'];
+const KEEP = ['balcony','guard','unitsPerFloor','layoutImage','lat','lng','code','title','community','address','price','origPrice','area','mainArea','age','floor','layout','direction','parkType','parkArea','parkPrice','parkEst','mgmtFee','units','elevator','builtDate','parkNo','memo','url'];
 const b64u = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 const unb64u = s => Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')), c => c.charCodeAt(0));
 async function pack(obj){
@@ -813,27 +862,45 @@ $('tourBtn').addEventListener('click', () => {
 // 官網資料：透過 Cloudflare Worker 讀信義官網（worker/sinyi-proxy.js），還沒設定時 FETCH_URL 留空
 const FETCH_URL = 'https://sinyi-proxy.ken29460338.workers.dev/';
 function applyOfficial(p, d){
-  if (num(d.price)) { p.price = num(d.price); if (num(d.origPrice)) p.origPrice = num(d.origPrice); }
-  for (const k of ['area','mainArea','age','parkArea','mgmtFee']) if (num(d[k]) != null) p[k] = num(d[k]);
-  for (const k of ['floor','layout','direction','community','parkType','layoutImage','photo']) if (d[k]) p[k] = String(d[k]);
-  if (d.address && (!p.address || String(d.address).includes(p.address))) p.address = d.address;
-  if (!p.title && d.title) p.title = d.title;
-  if (num(d.lat) && num(d.lng)) { p.lat = num(d.lat); p.lng = num(d.lng); p.manualLoc = true; p.locOfficial = true; }
-  p.officialAt = Date.now();
+  const S = v => (v == null ? '' : String(v).trim());
+  const area = t => { const x = (d.areaInfo || []).find(a => S(a.title).startsWith(t)); return x ? num(x.area) : null; };
+  const raw = 'houseNo' in d; // 中繼服務 v3 回傳官網原始欄位
+  const v = raw ? {
+    title: S(d.name).replace(/^專任/, ''), community: S(d.commName), address: S(d.address),
+    price: num(d.totalPrice), origPrice: num(d.priceFirst), area: num(d.areaBuilding),
+    mainArea: area('主建物'), balcony: area('陽台'), parkArea: area('停車'),
+    parkType: d.isParking ? (S(d.parking).replace(/^\d+個/, '') || '有') : '無',
+    parkPrice: num((S(d.parkPriceSource) + S(d.uniPrice)).match(/車位[^\d]*([\d,.]+)\s*萬/)?.[1]),
+    age: num(d.age), floor: d.floor ? `${S(d.floor)}樓/${S(d.floors)}樓` : '', layout: S(d.totalLayout || d.layout),
+    direction: S(d.buildingFront), guard: S(d.hasmanager), mgmtFee: num((S(d.monthlyFee).match(/([\d,]+)\s*元/) || [])[1]),
+    lat: num(d.latitude), lng: num(d.longitude), layoutImage: S(d.layoutImage)
+  } : d;
+  if (num(v.price)) { p.price = num(v.price); if (num(v.origPrice)) p.origPrice = num(v.origPrice); }
+  for (const k of ['area','mainArea','balcony','age','parkArea','mgmtFee']) if (num(v[k]) != null) p[k] = num(v[k]);
+  if (num(v.parkPrice) && !num(p.parkPrice)) { p.parkPrice = num(v.parkPrice); p.parkEst = false; }
+  for (const k of ['floor','layout','direction','community','parkType','guard']) if (S(v[k])) p[k] = S(v[k]);
+  if (/^https:\/\/res\.sinyi\.com\.tw\//.test(v.layoutImage || '')) p.layoutImage = v.layoutImage;
+  if (S(v.address) && (!p.address || S(v.address).includes(p.address))) p.address = S(v.address);
+  if (!p.title && S(v.title)) p.title = S(v.title);
+  if (num(v.lat) && num(v.lng)) { p.lat = num(v.lat); p.lng = num(v.lng); p.manualLoc = true; p.locOfficial = true; }
+  p.officialAt = Date.now(); delete p.officialFail;
 }
 async function fetchOfficial(list){
   if (!FETCH_URL || !list.length) return 0;
-  $('refreshBtn').disabled = true; let ok = 0;
-  for (const [i, p] of list.entries()){
-    $('omsg').textContent = `讀取官網資料 ${i+1}／${list.length}…`;
+  $('refreshBtn').disabled = true; let ok = 0, done = 0;
+  const one = async p => {
+    p._st = '讀取官網中…'; const el = document.querySelector(`[data-st="${CSS.escape(p.id)}"]`); if (el) el.textContent = p._st;
     try {
       const r = await fetch(FETCH_URL + '?code=' + encodeURIComponent(p.code));
       if (!r.ok) throw new Error(r.status);
-      applyOfficial(p, await r.json()); ok++;
-    } catch(e){}
-  }
+      applyOfficial(p, await r.json()); ok++; p._st = '';
+    } catch(e){ p.officialFail = true; p._st = '官網讀取失敗'; }
+    done++; $('omsg').textContent = `讀取官網資料 ${done}／${list.length}…`;
+  };
+  const queue = list.slice(); // 一次同時讀 3 間
+  await Promise.all(Array.from({length: Math.min(3, queue.length)}, async () => { while (queue.length) await one(queue.shift()); }));
   $('refreshBtn').disabled = false; isSample = false; save(); render();
-  $('omsg').textContent = `已更新 ${ok}／${list.length} 筆官網資料。` + (ok < list.length ? '讀不到的可能已下架或編號有誤。' : '');
+  $('omsg').textContent = `已更新 ${ok}／${list.length} 筆官網資料。` + (ok < list.length ? '讀不到的可能已下架或編號有誤，請手動補資料。' : '');
   return ok;
 }
 $('refreshBtn').addEventListener('click', async () => {
@@ -874,9 +941,17 @@ function splitAddr(raw){
   if (!m) return {};
   return {city: m[1] || '', dist: m[2] || '', road: m[3] || '', no: (m[4] || '').replace(/號$/, '')};
 }
+// 地址沒寫城市時，借用其他物件的城市（同一次比較通常在同一個城市）
+function cityHint(){
+  const n = {};
+  for (const q of props){ const c = splitAddr(q.tourAddr || q.address).city; if (c) n[c] = (n[c] || 0) + 1; }
+  return Object.entries(n).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+}
+const waitsOfficial = p => !!(FETCH_URL && isCode(p.code) && !p.officialAt && !p.officialFail);
 const locQueries = p => {
   const raw = String(p.tourAddr || p.address || '').trim(), c = String(p.community || '').trim();
-  const {city, dist, road, no} = splitAddr(raw);
+  let {city, dist, road, no} = splitAddr(raw);
+  if (!city) city = cityHint();
   const q = [];
   if (road && no) q.push([road + ' ' + no, dist, city].filter(Boolean).join(', '));
   if (c && city) q.push([c, dist, city].filter(Boolean).join(', '));
@@ -922,7 +997,7 @@ function drawMap(){
 async function locateAll(force){
   if (locating) return; locating = true; $('locBtn').disabled = true;
   try {
-    const todo = props.filter(p => force ? !p.manualLoc : (p.lat == null && !p.manualLoc));
+    const todo = props.filter(p => !waitsOfficial(p) && (force ? !p.manualLoc : (p.lat == null && !p.manualLoc)));
     let k = 0;
     for (const p of todo){
       k++; $('mapMsg').textContent = `定位中 ${k}／${todo.length}…`;
@@ -933,10 +1008,10 @@ async function locateAll(force){
     save();
   } finally { locating = false; $('locBtn').disabled = false; drawMap(); }
 }
-function scheduleLocate(){ clearTimeout(locTimer); locTimer = setTimeout(() => { if (props.some(p => p.lat == null && !p.manualLoc && locQueries(p).length)) locateAll(false); }, 600); }
+function scheduleLocate(){ clearTimeout(locTimer); locTimer = setTimeout(() => { if (props.some(p => p.lat == null && !p.manualLoc && !waitsOfficial(p) && locQueries(p).length)) locateAll(false); }, 600); }
 function resetLoc(p){ if (!p.manualLoc){ delete p.lat; delete p.lng; } }
 $('locBtn').addEventListener('click', () => {
-  for (const p of props){ delete p.manualLoc; delete p.lat; delete p.lng; }
+  for (const p of props){ if (p.locOfficial) continue; delete p.manualLoc; delete p.lat; delete p.lng; }
   locateAll(true);
 });
 $('tbl').addEventListener('change', e => { const i = e.target.closest('input[data-k]'); if (!i || !['address','community'].includes(i.dataset.k)) return; const p = props.find(q => q.id === i.dataset.id); if (p){ resetLoc(p); save(); drawMap(); scheduleLocate(); } });
@@ -958,6 +1033,7 @@ async function boot(){
   }
   renderCols(); render();
   if (store.get('pc-tourOpen', false) && props.length && !isSample) $('tour').hidden = false;
+  if (FETCH_URL && !isSample){ const todo = props.filter(p => isCode(p.code) && !p.officialAt); if (todo.length) fetchOfficial(todo); }
 }
 boot();
 }
