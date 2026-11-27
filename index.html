@@ -112,6 +112,7 @@ button.sec{background:var(--panel);border-color:var(--rule)}
 #map{height:440px;border-radius:8px;border:1px solid var(--rule);z-index:0;background:#e9e6e1}
 .pin span{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--brick);color:#fff;font:700 15px "Schibsted Grotesk",sans-serif;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35)}
 .pin.best span{background:#141414}
+.leglbl span{display:inline-block;transform:translate(-50%,-50%);background:#fff;color:#c8371e;border:1.5px solid #c8371e;border-radius:999px;padding:1px 8px;font:700 12px/1.5 "Noto Sans TC",sans-serif;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.2)}
 .pin.off span{background:#a59e95;width:22px;height:22px;margin:4px;font-size:12px}
 .legend{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:10px;font-size:14px}
 .legend span{display:flex;align-items:center;gap:6px}
@@ -764,6 +765,13 @@ async function drawMapPage(withTiles = true){
   const roadOk = tour && routeInfo && routeInfo.key === stopsKey(tourStops());
   const route = roadOk ? routeInfo.geom.map(([lat, lng]) => [PAD + mx(lng, z) - x0, MT + my(lat, z) - y0]) : pts.filter(o => tour && o.n).map(o => [PAD + mx(o.p.lng, z) - x0, MT + my(o.p.lat, z) - y0]);
   if (route.length > 1){ ctx.strokeStyle = 'rgba(200,55,30,.75)'; ctx.lineWidth = roadOk ? 4 : 3; ctx.setLineDash(roadOk ? [] : [8, 9]); ctx.beginPath(); route.forEach(([x, y], k) => k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.stroke(); ctx.setLineDash([]); }
+  if (roadOk) for (const lb of legLabels()){
+    const x = PAD + mx(lb.at[1], z) - x0, y = MT + my(lb.at[0], z) - y0;
+    ctx.font = `700 13px ${FONT}`; const w = ctx.measureText(lb.text).width + 16;
+    ctx.fillStyle = '#fff'; ctx.strokeStyle = '#c8371e'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x - w / 2, y - 11, w, 22, 11) : ctx.rect(x - w / 2, y - 11, w, 22); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#c8371e'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(lb.text, x, y + 1); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  }
   pts.forEach(({p, n}) => {
     const x = PAD + mx(p.lng, z) - x0, y = MT + my(p.lat, z) - y0;
     ctx.beginPath(); ctx.arc(x, y + 2, 17, 0, Math.PI * 2); ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fill();
@@ -905,6 +913,17 @@ const tourStops = () => tourList().filter(p => !p.tourOff && p.lat != null && p.
 const stopsKey = st => st.map(p => `${(+p.lat).toFixed(5)},${(+p.lng).toFixed(5)}`).join(';');
 const fmtDur = sec => { const m = Math.max(1, Math.round(sec / 60)); return m >= 60 ? `${Math.floor(m / 60)}小時${m % 60 ? (m % 60) + '分鐘' : ''}` : `${m}分鐘`; };
 const fmtDist = m => m >= 1000 ? `${(m / 1000).toFixed(1)}公里` : `${Math.round(m)}公尺`;
+function legLabels(){ // 每段車程標籤的位置與文字（貼在路線上、兩站中間）
+  if (!routeInfo || routeInfo.key !== stopsKey(tourStops())) return [];
+  const st = tourStops(), g = routeInfo.geom;
+  return routeInfo.legs.map((lg, i) => {
+    const a = st[i], b = st[i + 1]; if (!a || !b) return null;
+    const mid = [(+a.lat + +b.lat) / 2, (+a.lng + +b.lng) / 2];
+    let best = g[0], bd = Infinity;
+    for (const pt of g){ const d = (pt[0] - mid[0]) ** 2 + (pt[1] - mid[1]) ** 2; if (d < bd){ bd = d; best = pt; } }
+    return {at: best, text: `約${Math.max(1, Math.round(lg.dur / 60))}分`};
+  }).filter(Boolean);
+}
 function legFrom(p){ // 從這一站開到下一站的車程
   if (!routeInfo || routeInfo.key !== stopsKey(tourStops())) return null;
   const i = routeInfo.ids.indexOf(p.id);
@@ -1192,7 +1211,10 @@ function drawMap(){
     pts.push([p.lat, p.lng]); if (tour && n) route.push([p.lat, p.lng]);
   });
   const roadOk = tour && typeof routeInfo !== 'undefined' && routeInfo && routeInfo.key === stopsKey(tourStops());
-  if (roadOk) L.polyline(routeInfo.geom, {color: '#c8371e', weight: 4, opacity: .8}).addTo(mapLayer); // 實際道路路線
+  if (roadOk){
+    L.polyline(routeInfo.geom, {color: '#c8371e', weight: 4, opacity: .8}).addTo(mapLayer); // 實際道路路線
+    for (const lb of legLabels()) L.marker(lb.at, {icon: L.divIcon({className: 'leglbl', html: `<span>${esc(lb.text)}</span>`, iconSize: null}), interactive: false, keyboard: false}).addTo(mapLayer);
+  }
   else if (route.length > 1) L.polyline(route, {color: '#c8371e', weight: 3, opacity: .75, dashArray: '6 8'}).addTo(mapLayer);
   setTimeout(() => { map.invalidateSize(); if (pts.length) map.fitBounds(pts, {padding: [40, 40], maxZoom: 15}); }, 0);
   $('legend').innerHTML = items.map(({p, n}) => `<span class="${p.lat == null || !n ? 'miss' : ''}"><b>${n || '–'}</b>${esc(p.title || p.code || '未命名')}${p.lat == null ? '（未定位）' : !n ? '（不帶看）' : ''}</span>`).join('');
