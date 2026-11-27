@@ -126,7 +126,7 @@ def read_csv(url, need):
     tag = re.sub(r'.*fileName=', '', url)
     if tag not in DIAG and b:
         DIAG[tag] = 1
-        print('diag', url[-60:], len(b), repr(decode(b[:300]).splitlines()[:2]), flush=True)
+        print('diag', url[-60:], len(b), repr(decode(b[:600]).splitlines()[:4]), flush=True)
     if not b or len(b) < 40:
         return None, None
     try:
@@ -141,12 +141,15 @@ def read_csv(url, need):
 
 def lot_key(town, loc):
     """土地位置 → (區, 地段, 地號)，例：臺中市南屯區鎮平段123-4地號 → ('南屯區', '鎮平段', '123-4')"""
-    a = str(loc or '').translate(FW).replace(' ', '')
+    a = str(loc or '').translate(FW).replace(' ', '').replace('－', '-').replace('─', '-').replace('—', '-')
     a = re.sub(r'^(臺|台)?中市', '', a)
     if town and a.startswith(town):
         a = a[len(town):]
-    m = re.match(r'^(.*?段(?:.{1,3}小段)?)(\d+(?:-\d+)?)地號', a)
-    return (town, m.group(1), m.group(2)) if m else None
+    m = re.search(r'([^\d,，、]*?段(?:[^\d]{1,3}小段)?)(\d+)(?:-(\d+))?地號', a)
+    if not m:
+        return None
+    sub = int(m.group(3)) if m.group(3) else 0
+    return (town, m.group(1), f'{int(m.group(2))}' + (f'-{sub}' if sub else ''))  # 0101-0000 → 101
 
 
 def lot_names(code):
@@ -182,7 +185,7 @@ def lot_names(code):
                     lots.setdefault(k, Counter())[nm] += 1
         time.sleep(0.5)
     out = {k: c.most_common(1)[0][0] for k, c in lots.items()}
-    print('presale lots', len(out), flush=True)
+    print('presale lots', len(out), 'sample', list(out.items())[:3], flush=True)
     return out
 
 
