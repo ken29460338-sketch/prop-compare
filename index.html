@@ -1256,6 +1256,7 @@ const locQueries = p => {
   return [...new Set(q)];
 };
 // Google 地址定位（經中繼服務；比 OpenStreetMap 準，門牌也找得到）。回傳 [lat, lng, 地址]；找不到回 null；服務不能用時丟錯讓呼叫端改用 OSM
+let geoSaveT = null; const saveGeoSoon = () => { clearTimeout(geoSaveT); geoSaveT = setTimeout(() => store.set('pc-geo', geoCache), 1500); };
 async function geocodeG(q){
   const k = 'G|' + q; if (k in geoCache) return geoCache[k];
   const r = await fetch(`${FETCH_URL}geo?q=${encodeURIComponent(q)}`, {cache: 'no-store'});
@@ -1266,7 +1267,7 @@ async function geocodeG(q){
   const T = x => String(x || '').replace(/臺/g, '台'), city = splitAddr(q).city;
   if ((city && !T(j.addr).includes(T(city))) || (j.partial && j.type === 'APPROXIMATE')) { geoCache[k] = null; store.set('pc-geo', geoCache); return null; }
   const nice = String(j.addr || '').replace(/^\d{3,6}/, '').replace(/^(台灣|臺灣)/, '').replace(/号號/g, '號').replace(/号/g, '號');
-  const v = [+j.lat, +j.lng, nice, j.type || '']; geoCache[k] = v; store.set('pc-geo', geoCache); return v;
+  const v = [+j.lat, +j.lng, nice, j.type || '']; geoCache[k] = v; saveGeoSoon(); return v;
 }
 // 給 Google 用的查詢：完整地址（沒寫城市就補上其他物件的城市），再來是社區名稱
 const gQueries = p => {
@@ -1500,40 +1501,42 @@ async function lvrRadius(p, cat, idx, R, run){
   let names; try { names = await nearRoads(p.lat, p.lng, R); } catch(e){ return {msg: '附近道路暫時查不到（Google 定位服務沒有回應或已達今日上限），請稍後再試。'}; }
   const typeOk = cat === 'house' ? (t => /透天/.test(t)) : (t => /大樓|華廈|公寓|套房/.test(t));
   const now = rocNow(), cut = lvrSpan === 'all' ? 0 : now - (/^\d+$/.test(lvrSpan) ? +lvrSpan : 6) * 10000;
-  let budget = 260; // 每間物件最多請 Google 定位幾次（查過的會存起來，不重複計費）
+  let budget = 160; // 每間物件最多請 Google 定位幾次（查過的會存起來，不重複計費）
   const pt = async (town, road, n) => {
     if (budget <= 0) return null; budget--;
     try { const v = await geocodeG(`臺中市${town}${road}${n}號`); return v && (!v[3] || /ROOFTOP|RANGE/.test(v[3])) ? [v[0], v[1]] : null; } catch(e){ return null; }
   };
-  const found = [];
-  for (const road of names){
-    for (const town of Object.keys(idx.towns).filter(t => idx.towns[t].includes(road))){
-      if (run !== lvrRun) return {stale: true};
-      const pool = (await lvrRoad(town, road)).filter(r => r[0] >= cut && typeOk(r[7]) && mainNo(r) != null);
-      const nums = [...new Set(pool.map(mainNo))].sort((a, b) => a - b);
-      if (!nums.length) continue;
-      const A = new Map(), put = async n => { if (!A.has(n)) { const ll = await pt(town, road, n); A.set(n, ll ? {n, ll, d: hav(p.lat, p.lng, ll[0], ll[1])} : null); } };
-      const K = Math.min(6, nums.length);
-      await Promise.all(Array.from({length: K}, (_, i) => put(nums[Math.round(i * (nums.length - 1) / Math.max(1, K - 1))])));
-      for (let it = 0; it < 2; it++){ // 在最近的錨點兩側再補點，把範圍抓準
-        const v = [...A.values()].filter(Boolean).sort((a, b) => a.n - b.n); if (!v.length) break;
-        const bi = v.reduce((m, x, i) => x.d < v[m].d ? i : m, 0);
-        if (v[bi].d > R + 1500) break; // 這條路離物件很遠（例如同名路在別區）
-        const mids = [];
-        for (const j of [bi - 1, bi + 1]) if (v[j]) { const lo = Math.min(v[j].n, v[bi].n), hi = Math.max(v[j].n, v[bi].n), mid = nums.filter(n => n > lo && n < hi); if (mid.length) mids.push(mid[mid.length >> 1]); }
-        await Promise.all(mids.map(put));
-      }
-      const v = [...A.values()].filter(Boolean).sort((a, b) => a.n - b.n);
-      if (!v.length || Math.min(...v.map(x => x.d)) > R + 1500) continue;
-      const est = n => { // 依門牌號碼在前後兩個定位點之間內插
-        let a = null, b = null; for (const x of v){ if (x.n <= n) a = x; if (x.n >= n && !b) b = x; }
-        if (a && b){ const f = b.n === a.n ? 0 : (n - a.n) / (b.n - a.n); return hav(p.lat, p.lng, a.ll[0] + (b.ll[0] - a.ll[0]) * f, a.ll[1] + (b.ll[1] - a.ll[1]) * f); }
-        const e = a || b; return e.d + (Math.abs(n - e.n) > 60 ? 9e9 : 0); // 超出定位點範圍太遠就不算
-      };
-      const dm = new Map(nums.map(n => [n, est(n)]));
-      for (const r of pool){ const d = dm.get(mainNo(r)); if (d <= R) found.push({road, r, dist: d}); }
-    }
-  }
+  const found = [], jobs = [];
+  for (const road of names) for (const town of Object.keys(idx.towns).filter(t => idx.towns[t].includes(road))) jobs.push([town, road]);
+  const doRoad = async (town, road) => {
+    if (run !== lvrRun) return;
+    const pool = (await lvrRoad(town, road)).filter(r => r[0] >= cut && typeOk(r[7]) && mainNo(r) != null);
+    const nums = [...new Set(pool.map(mainNo))].sort((a, b) => a - b);
+    if (!nums.length) return;
+    const A = new Map(), put = async n => { if (!A.has(n)) { A.set(n, null); const ll = await pt(town, road, n); A.set(n, ll ? {n, ll, d: hav(p.lat, p.lng, ll[0], ll[1])} : null); } };
+    await put(nums[nums.length >> 1]); // 先定位中間一個門牌：同名路在別區、離很遠的直接略過
+    const m0 = A.get(nums[nums.length >> 1]);
+    if (m0 && m0.d > R + 3000) return;
+    const K = Math.min(4, nums.length);
+    await Promise.all(Array.from({length: K}, (_, i) => put(nums[Math.round(i * (nums.length - 1) / Math.max(1, K - 1))])));
+    let v = [...A.values()].filter(Boolean).sort((a, b) => a.n - b.n);
+    if (!v.length) return;
+    const bi = v.reduce((m, x, i) => x.d < v[m].d ? i : m, 0);
+    if (v[bi].d > R + 1500) return;
+    const mids = []; // 在最近的定位點兩側各補一點，把範圍抓準
+    for (const j of [bi - 1, bi + 1]) if (v[j]) { const lo = Math.min(v[j].n, v[bi].n), hi = Math.max(v[j].n, v[bi].n), mid = nums.filter(n => n > lo && n < hi); if (mid.length) mids.push(mid[mid.length >> 1]); }
+    await Promise.all(mids.map(put));
+    v = [...A.values()].filter(Boolean).sort((a, b) => a.n - b.n);
+    const est = n => { // 依門牌號碼在前後兩個定位點之間內插
+      let a = null, b = null; for (const x of v){ if (x.n <= n) a = x; if (x.n >= n && !b) b = x; }
+      if (a && b){ const f = b.n === a.n ? 0 : (n - a.n) / (b.n - a.n); return hav(p.lat, p.lng, a.ll[0] + (b.ll[0] - a.ll[0]) * f, a.ll[1] + (b.ll[1] - a.ll[1]) * f); }
+      const e = a || b; return e.d + (Math.abs(n - e.n) > 60 ? 9e9 : 0); // 超出定位點範圍太遠就不算
+    };
+    const dm = new Map(nums.map(n => [n, est(n)]));
+    for (const r of pool){ const d = dm.get(mainNo(r)); if (d <= R) found.push({road, r, dist: d}); }
+  };
+  await Promise.all(Array.from({length: 6}, async () => { while (jobs.length) { const [t, r] = jobs.shift(); await doRoad(t, r); } }));
+  if (run !== lvrRun) return {stale: true};
   found.sort((x, y) => y.r[0] - x.r[0]);
   const w = lvrSpanPick(found.map(x => x.r), 3), keep = new Set(w.list);
   return {rows: found.filter(x => keep.has(x.r)), label: w.label, scope: `物件周遭 ${R} 公尺內的${cat === 'house' ? '透天' : '大樓／華廈'}（位置依門牌推估，約有 50–100 公尺誤差）`, short: budget <= 0};
