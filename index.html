@@ -1448,8 +1448,12 @@ async function lvrLandLike(p, cat, idx){
     const rows = dist.filter(x => keep.has(x.r)).sort((x, y) => (y.road === road) - (x.road === road) || y.r[0] - x.r[0]);
     return {rows, label: wd.label, scope: `同區域（${town}）透天${road ? `（${road} 只有 ${w.list.length} 筆，已擴大）` : ''}`, town};
   }
-  const lands = await lvrFile(town, '_土地'), w = lvrSpanPick(lands, 3);
-  return {rows: w.list.map(r => ({road: '', r})), label: w.label, scope: `同區域（${town}）純土地；實價登錄的土地只有地段地號、沒有路名，無法再縮到同路段`, town};
+  const lands = await lvrFile(town, '_土地'), zk = r => r[24] || '未登載';
+  const zones = Object.entries(lands.reduce((m, r) => (m[zk(r)] = (m[zk(r)] || 0) + 1, m), {})).sort((a, b) => b[1] - a[1]);
+  const z = p.lvrZone && zones.some(([k]) => k === p.lvrZone) ? p.lvrZone : '';
+  const w = lvrSpanPick(z ? lands.filter(r => zk(r) === z) : lands, 3);
+  return {rows: w.list.map(r => ({road: '', r})), label: w.label, zones, zone: z,
+    scope: `同區域（${town}）純土地${z ? `・使用分區「${z}」` : '・不分使用分區'}`, town};
 }
 function landTable(p, cat, res){
   const L = res.rows, show = lvrOpen[p.id] ? L : L.slice(0, 8);
@@ -1462,7 +1466,8 @@ function landTable(p, cat, res){
   const head = cat === 'house'
     ? `<th>交易日期</th><th>門牌</th><th>總價(萬)</th><th>土地總坪數</th><th>地坪單價(萬/坪)${tag}</th><th>建物坪數</th><th>格局</th><th>屋齡</th><th>樓高</th><th>車位</th>`
     : `<th>交易日期</th><th>地段地號</th><th>總價(萬)</th><th>土地總坪數</th><th>地坪單價(萬/坪)</th><th>使用分區</th><th>備註</th>`;
-  return `<p class="sumline">${esc(res.scope)}｜${res.label} ${L.length} 筆，平均地坪單價 <b>${avg ? f2(avg) : '—'}</b> 萬/坪${cat === 'house' ? '（含建物價值）' : ''}${units.length < L.length ? `（${L.length - units.length} 筆土地資料不足，不列入平均）` : ''}${mine ? `｜本物件土地 ${f2(mine)} 坪` : ''}</p>
+  const zsel = res.zones ? `<p class="msg" style="margin:0 0 6px">使用分區：<select data-lvrzone="${esc(p.id)}" style="width:auto;font-size:13px;padding:2px 6px"><option value="">全部（不建議直接看平均）</option>${res.zones.map(([k, n]) => `<option value="${esc(k)}" ${k === res.zone ? 'selected' : ''}>${esc(k)}（${n}）</option>`).join('')}</select>　實價登錄的土地只有地段地號、沒有路名，所以以同區域比較；請選和本物件相同的使用分區。</p>` : '';
+  return `${zsel}<p class="sumline">${esc(res.scope)}｜${res.label} ${L.length} 筆，平均地坪單價 <b>${avg ? f2(avg) : '—'}</b> 萬/坪${cat === 'house' ? '（含建物價值）' : ''}${units.length < L.length ? `（${L.length - units.length} 筆土地資料不足，不列入平均）` : ''}${mine ? `｜本物件土地 ${f2(mine)} 坪` : ''}</p>
     <div class="scroll"><table><thead><tr>${head}</tr></thead><tbody>${show.map(x => `<tr>${cells(x)}</tr>`).join('')}</tbody></table></div>
     ${L.length > 8 ? `<button class="s" data-lvrmore="${esc(p.id)}" style="margin-top:6px">${lvrOpen[p.id] ? '收合' : `顯示全部 ${L.length} 筆`}</button>` : ''}`;
 }
@@ -1517,6 +1522,11 @@ $('lvrSec').addEventListener('change', e => {
   const c = e.target.closest('[data-lvrcat]'); if (!c) return;
   const p = props.find(q => q.id === c.dataset.lvrcat); if (!p) return;
   p.lvrCat = c.value; save(); renderLvr();
+});
+$('lvrSec').addEventListener('change', e => {
+  const z = e.target.closest('[data-lvrzone]'); if (!z) return;
+  const p = props.find(q => q.id === z.dataset.lvrzone); if (!p) return;
+  p.lvrZone = z.value; save(); renderLvr();
 });
 $('lvrSec').addEventListener('click', e => {
   const s = e.target.closest('[data-span]'); if (s){ lvrSpan = s.dataset.span; store.set('pc-lvrSpan', lvrSpan); renderLvr(); return; }
