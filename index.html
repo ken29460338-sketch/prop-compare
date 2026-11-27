@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>物件比較分析</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Schibsted+Grotesk:wght@500;700&display=swap">
 <style>
 /* VOICE: a working agent's desk tool — direct, exact, no decoration.
@@ -105,6 +106,15 @@ button.act{background:var(--brick);border-color:var(--brick);color:#fff;font-wei
 button.sec{background:var(--panel);border-color:var(--rule)}
 #refreshBox a{display:inline-block;margin:2px 10px 2px 0}
 @media(max-width:600px){.low .row button.act,.low .row button.sec{flex:1 1 calc(50% - 8px)}}
+#mapSec{margin-top:18px}
+#map{height:440px;border-radius:8px;border:1px solid var(--rule);z-index:0;background:#e9e6e1}
+.pin span{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--brick);color:#fff;font:700 15px "Schibsted Grotesk",sans-serif;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35)}
+.pin.best span{background:#141414}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:10px;font-size:14px}
+.legend span{display:flex;align-items:center;gap:6px}
+.legend b{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--brick);color:#fff;font:700 12px "Schibsted Grotesk",sans-serif;flex:none}
+.legend .miss b{background:var(--rule);color:var(--mute)}
+@media(max-width:600px){#map{height:340px}}
 @media(prefers-reduced-motion:reduce){.bar .k i{transition:none}}
 @media(max-width:820px){.top,.low{grid-template-columns:minmax(0,1fr)}.sum{grid-template-columns:repeat(2,minmax(0,1fr))}.sum div:nth-child(2){border:0}}
 @media(max-width:600px){.bar{grid-template-columns:minmax(0,1fr) 5.5em}.bar .k{grid-column:1/-1;grid-row:2}.grid2{grid-template-columns:minmax(0,1fr)}}
@@ -143,6 +153,17 @@ button.sec{background:var(--panel);border-color:var(--rule)}
   <div class="cols" id="cols" role="group" aria-label="顯示欄位"></div>
   <div class="scroll"><table id="tbl"></table></div>
   <p class="msg" id="sample" style="margin:6px 0 0"></p>
+
+  <section class="panel" id="mapSec">
+    <div class="row" style="justify-content:space-between">
+      <h2 style="margin:0">位置地圖</h2>
+      <button class="s" id="locBtn">重新定位</button>
+    </div>
+    <p class="msg" id="mapMsg" role="status" style="margin:4px 0 10px"></p>
+    <div id="map" aria-label="物件位置地圖"></div>
+    <div class="legend" id="legend"></div>
+    <p class="msg" style="margin:8px 0 0">位置依社區名稱或地址自動搜尋，屬概略位置。標記不準可以直接拖到正確位置，會記住。</p>
+  </section>
 
   <div class="low">
     <div class="panel">
@@ -213,6 +234,7 @@ button.sec{background:var(--panel);border-color:var(--rule)}
 </div></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
 {
 const $ = id => document.getElementById(id);
@@ -340,6 +362,7 @@ function render(){
   $('sample').textContent = isSample ? '目前顯示的是範例資料，貼上你的物件後會自動取代。' : '';
   renderSummary(best); renderBars(best);
   if (typeof renderTour === 'function' && !location.hash.startsWith('#d=')) renderTour();
+  if (typeof drawMap === 'function') { drawMap(); scheduleLocate(); }
 }
 
 function renderSummary(best){
@@ -537,7 +560,7 @@ $('shImg').addEventListener('click', async () => {
 });
 
 // ---- share link: whole report packed into the URL hash ----
-const KEEP = ['code','title','community','address','price','origPrice','area','mainArea','age','floor','layout','direction','parkType','parkArea','parkPrice','parkEst','mgmtFee','units','elevator','builtDate','parkNo','memo','url'];
+const KEEP = ['lat','lng','code','title','community','address','price','origPrice','area','mainArea','age','floor','layout','direction','parkType','parkArea','parkPrice','parkEst','mgmtFee','units','elevator','builtDate','parkNo','memo','url'];
 const b64u = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 const unb64u = s => Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')), c => c.charCodeAt(0));
 async function pack(obj){
@@ -735,6 +758,71 @@ $('reBtn').addEventListener('click', () => {
   $('pmsg').textContent = last ? '已放回上次貼的物件訊息，修改後按「加入比較」會重新分析並取代目前清單。' : '貼上物件訊息後按「加入比較」，會重新分析並取代目前清單。';
   window.scrollTo({top: 0, behavior: smooth()}); $('paste').focus({preventScroll: true});
 });
+
+
+// ---- 位置地圖 ----
+let map = null, mapLayer = null, locating = false, locTimer = null;
+const geoCache = store.get('pc-geo', {});
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const locQueries = p => {
+  const a = String(p.tourAddr || p.address || '').trim(), c = String(p.community || '').trim();
+  return [c && a ? c + ' ' + a : '', a, c].filter(Boolean);
+};
+async function geocode(q){
+  if (q in geoCache) return geoCache[q];
+  await sleep(1100); // OpenStreetMap 的地址搜尋每秒最多一次
+  const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=tw&accept-language=zh-TW&q=' + encodeURIComponent(q));
+  if (!r.ok) throw new Error('geo');
+  const j = await r.json(); const v = j[0] ? [+j[0].lat, +j[0].lon] : null;
+  geoCache[q] = v; store.set('pc-geo', geoCache); return v;
+}
+function initMap(){
+  if (map || !window.L) return !!map;
+  map = L.map('map', {scrollWheelZoom: false}).setView([24.15, 120.67], 12);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '&copy; OpenStreetMap'}).addTo(map);
+  mapLayer = L.layerGroup().addTo(map);
+  return true;
+}
+function drawMap(){
+  if (!window.L){ $('mapMsg').textContent = '地圖元件沒有載入，請檢查網路後重新整理。'; return; }
+  initMap(); mapLayer.clearLayers();
+  const shared = location.hash.startsWith('#d='), best = bestId(), pts = [];
+  const list = sorted();
+  list.forEach((p, i) => {
+    if (p.lat == null || p.lng == null) return;
+    const icon = L.divIcon({className: 'pin' + (p.id === best ? ' best' : ''), html: `<span>${i+1}</span>`, iconSize: [30, 30], iconAnchor: [15, 15]});
+    const m = L.marker([p.lat, p.lng], {icon, draggable: !shared, keyboard: true, title: p.title || p.code || ''}).addTo(mapLayer);
+    m.bindTooltip(esc(`${i+1}. ${p.title || p.code || ''}${p.community ? '（' + p.community + '）' : ''}`));
+    m.on('dragend', () => { const ll = m.getLatLng(); p.lat = ll.lat; p.lng = ll.lng; p.manualLoc = true; isSample = false; save(); });
+    pts.push([p.lat, p.lng]);
+  });
+  setTimeout(() => { map.invalidateSize(); if (pts.length) map.fitBounds(pts, {padding: [40, 40], maxZoom: 15}); }, 0);
+  $('legend').innerHTML = list.map((p, i) => `<span class="${p.lat == null ? 'miss' : ''}"><b>${i+1}</b>${esc(p.title || p.code || '未命名')}${p.lat == null ? '（未定位）' : ''}</span>`).join('');
+  const miss = list.filter(p => p.lat == null).length;
+  if (!locating) $('mapMsg').textContent = !list.length ? '加入物件後會自動標在地圖上。' : miss ? `${miss} 間找不到位置，請在表格或帶看路線補上社區名稱或詳細地址。` : '';
+}
+async function locateAll(force){
+  if (locating) return; locating = true; $('locBtn').disabled = true;
+  try {
+    const todo = props.filter(p => force ? !p.manualLoc : (p.lat == null && !p.manualLoc));
+    let k = 0;
+    for (const p of todo){
+      k++; $('mapMsg').textContent = `定位中 ${k}／${todo.length}…`;
+      let hit = null;
+      for (const q of locQueries(p)){ try { hit = await geocode(q); } catch(e){ hit = null; } if (hit) break; }
+      if (hit){ p.lat = hit[0]; p.lng = hit[1]; } else { delete p.lat; delete p.lng; }
+    }
+    save();
+  } finally { locating = false; $('locBtn').disabled = false; drawMap(); }
+}
+function scheduleLocate(){ clearTimeout(locTimer); locTimer = setTimeout(() => { if (props.some(p => p.lat == null && !p.manualLoc && locQueries(p).length)) locateAll(false); }, 600); }
+function resetLoc(p){ if (!p.manualLoc){ delete p.lat; delete p.lng; } }
+$('locBtn').addEventListener('click', () => {
+  for (const p of props){ delete p.manualLoc; delete p.lat; delete p.lng; }
+  locateAll(true);
+});
+$('tbl').addEventListener('change', e => { const i = e.target.closest('input[data-k]'); if (!i || !['address','community'].includes(i.dataset.k)) return; const p = props.find(q => q.id === i.dataset.id); if (p){ resetLoc(p); save(); drawMap(); scheduleLocate(); } });
+$('tlist').addEventListener('change', e => { const i = e.target.closest('input[data-t=tourAddr]'); if (!i) return; const p = props.find(q => q.id === i.closest('.ti').dataset.id); if (p){ resetLoc(p); save(); drawMap(); scheduleLocate(); } });
 
 async function boot(){
   const m = location.hash.match(/^#d=(.+)$/);
