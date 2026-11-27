@@ -103,7 +103,7 @@ def split_addr(addr, town):
     if lm:
         lane = lm.group(1)
         rest = rest[len(lane):]
-    nm = re.match(r'^(\d+)(?:~(\d+))?號', rest)
+    nm = re.match(r'^(\d+)(?:之\d+)?(?:~(\d+)(?:之\d+)?)?號', rest)
     lo = hi = None
     if nm:
         lo = int(nm.group(1))
@@ -119,9 +119,24 @@ def build_city(code):
     rows = {}  # (town, road) -> {id: row}
     seen = set()
     files = [(s, f'{BASE}DownloadSeason?season={s}&fileName={code}_lvr_land_A.csv') for s in seasons()]
-    files.append(('now', f'{BASE}Download?fileName={code}_lvr_land_A.csv'))  # 本期（最新一期，尚未併入季資料）
+    # 本期（每 10 天一批，只提供最新一批）：每次下載都存一份到 data/lvr/raw/，季資料出來前才不會漏掉中間幾批
+    rawdir = os.path.join(OUT, 'raw', code)
+    os.makedirs(rawdir, exist_ok=True)
+    nb = get(f'{BASE}Download?fileName={code}_lvr_land_A.csv')
+    if nb and len(nb) > 200 and '鄉鎮市區' in decode(nb[:400]):
+        import hashlib
+        h = hashlib.sha1(nb).hexdigest()[:10]
+        if not any(f.endswith(h + '.csv') for f in os.listdir(rawdir)):
+            with open(os.path.join(rawdir, f'now-{datetime.date.today():%Y%m%d}-{h}.csv'), 'wb') as f:
+                f.write(nb)
+    cutoff = (datetime.date.today() - datetime.timedelta(days=300)).strftime('%Y%m%d')
+    for f in sorted(os.listdir(rawdir)):
+        if f[4:12] < cutoff:
+            os.remove(os.path.join(rawdir, f))  # 季資料早已涵蓋
+        else:
+            files.append(('raw:' + f, 'file://' + os.path.abspath(os.path.join(rawdir, f))))
     for tag, url in files:
-        b = get(url)
+        b = open(url[7:], 'rb').read() if url.startswith('file://') else get(url)
         if not b or len(b) < 200 or b[:15].lower().startswith(b'<!doctype') or b[:6].lower() == b'<html>':
             print('skip', tag, flush=True)
             continue
@@ -205,6 +220,7 @@ def build_city(code):
     out = os.path.join(OUT, code)
     if os.path.isdir(out):
         shutil.rmtree(out)
+    os.makedirs(out, exist_ok=True)
     index = {}
     for (town, road), lst in rows.items():
         lst.sort(key=lambda x: -x[0])
