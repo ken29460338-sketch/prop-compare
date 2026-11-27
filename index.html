@@ -764,9 +764,24 @@ $('reBtn').addEventListener('click', () => {
 let map = null, mapLayer = null, locating = false, locTimer = null;
 const geoCache = store.get('pc-geo', {});
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+// OpenStreetMap 對連寫的台灣地址辨識差，拆成「路名, 區, 市」再搜
+function splitAddr(raw){
+  let t = String(raw || '').replace(/\s+/g, '').replace(/^台(北|中|南|東)/, '臺$1').replace(/^(\d{3,6})/, '');
+  const m = t.match(/^(.+?[市縣])?(.+?[區鄉鎮市])?(.+?(?:路|街|大道)(?:[一二三四五六七八九十\d]+段)?)?(?:([\d]+(?:巷\d+弄?)?[\d之\-]*號?))?/);
+  if (!m) return {};
+  return {city: m[1] || '', dist: m[2] || '', road: m[3] || '', no: (m[4] || '').replace(/號$/, '')};
+}
 const locQueries = p => {
-  const a = String(p.tourAddr || p.address || '').trim(), c = String(p.community || '').trim();
-  return [c && a ? c + ' ' + a : '', a, c].filter(Boolean);
+  const raw = String(p.tourAddr || p.address || '').trim(), c = String(p.community || '').trim();
+  const {city, dist, road, no} = splitAddr(raw);
+  const q = [];
+  if (road && no) q.push([road + ' ' + no, dist, city].filter(Boolean).join(', '));
+  if (c && city) q.push([c, dist, city].filter(Boolean).join(', '));
+  if (road) q.push([road, dist, city].filter(Boolean).join(', '));
+  if (road && city) q.push([road, city].join(', '));
+  if (raw) q.push(raw);
+  if (road && !city) q.push(road);
+  return [...new Set(q)];
 };
 async function geocode(q){
   if (q in geoCache) return geoCache[q];
