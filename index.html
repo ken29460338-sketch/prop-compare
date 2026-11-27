@@ -76,7 +76,7 @@ a{color:var(--brick)}
 .bar .k i{display:block;height:100%;background:var(--ink);transition:width .4s}
 .bar.best .k i{background:var(--brick)}
 .bar .v{text-align:right;white-space:nowrap}
-.low{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;margin-top:18px}
+.low{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;margin-top:18px}
 .prev{margin-top:14px;display:none}
 .prev canvas{width:100%;height:auto;border:1px solid var(--rule);border-radius:8px;background:#fff}
 .empty{padding:28px;text-align:center;color:var(--mute)}
@@ -219,34 +219,6 @@ button.sec{background:var(--panel);border-color:var(--rule)}
     <p class="msg" style="margin:8px 0 0">位置依社區名稱或地址自動搜尋，屬概略位置。標記不準可以直接拖到正確位置，會記住。</p>
   </section>
 
-  <div class="low">
-    <div class="panel">
-      <h2>扣車單價比較（萬／坪）</h2>
-      <div class="bars" id="bars"></div>
-    </div>
-    <div class="panel">
-      <h2>報告資訊</h2>
-      <div class="grid2">
-        <div><label class="lab" for="agent">業務員</label><input id="agent" placeholder="姓名"></div>
-        <div><label class="lab" for="phone">聯絡電話</label><input id="phone" inputmode="tel" placeholder="09xx-xxxxxx"></div>
-        <div><label class="lab" for="store">店名／單位</label><input id="store" placeholder="例：文心店"></div>
-        <div><label class="lab" for="client">客戶姓名</label><input id="client" placeholder="例：王先生"></div>
-      </div>
-      <div style="margin-top:10px"><label class="lab" for="note">備註</label><input id="note" placeholder="以下為您推薦的比較物件"></div>
-      <div class="row" style="margin-top:12px">
-        <button class="act" id="shareLink">🔗 產生分享連結</button>
-        <button class="act" id="pdfBtn">📄 下載 PDF</button>
-        <button class="act" id="mkImg">🖼 產生比較圖</button>
-        <button class="act" id="tourBtn">🚗 帶看路線</button>
-        <button class="sec" id="refreshBtn" title="跳過暫存，重新到信義官網抓最新資料（物件改價時用）">↻ 更新官網資料</button>
-        <button class="sec" id="reBtn">🔄 重新分析</button>
-      </div>
-      <p class="msg" id="omsg" role="status" style="margin:8px 0 0"></p>
-      <input id="linkOut" readonly hidden style="margin-top:8px;font-size:14px">
-      <div id="refreshBox" hidden style="margin-top:10px;font-size:14px"></div>
-    </div>
-  </div>
-
   <section class="panel tour" id="tour" hidden>
     <div class="row" style="justify-content:space-between">
       <h2 style="margin:0">帶看路線</h2>
@@ -272,6 +244,30 @@ button.sec{background:var(--panel);border-color:var(--rule)}
       </div>
     </div>
   </section>
+
+  <div class="low">
+    <div class="panel">
+      <h2>報告資訊</h2>
+      <div class="grid2">
+        <div><label class="lab" for="agent">業務員</label><input id="agent" placeholder="姓名"></div>
+        <div><label class="lab" for="phone">聯絡電話</label><input id="phone" inputmode="tel" placeholder="09xx-xxxxxx"></div>
+        <div><label class="lab" for="store">店名／單位</label><input id="store" placeholder="例：文心店"></div>
+        <div><label class="lab" for="client">客戶姓名</label><input id="client" placeholder="例：王先生"></div>
+      </div>
+      <div style="margin-top:10px"><label class="lab" for="note">備註</label><input id="note" placeholder="以下為您推薦的比較物件"></div>
+      <div class="row" style="margin-top:12px">
+        <button class="act" id="shareLink">🔗 產生分享連結</button>
+        <button class="act" id="pdfBtn">📄 下載 PDF</button>
+        <button class="act" id="mkImg">🖼 產生比較圖</button>
+        <button class="act" id="tourBtn">🚗 帶看路線</button>
+        <button class="sec" id="refreshBtn" title="跳過暫存，重新到信義官網抓最新資料（物件改價時用）">↻ 更新官網資料</button>
+        <button class="sec" id="reBtn">🔄 重新分析</button>
+      </div>
+      <p class="msg" id="omsg" role="status" style="margin:8px 0 0"></p>
+      <input id="linkOut" readonly hidden style="margin-top:8px;font-size:14px">
+      <div id="refreshBox" hidden style="margin-top:10px;font-size:14px"></div>
+    </div>
+  </div>
 
   <div class="panel prev" id="prev">
     <div class="row" style="justify-content:space-between">
@@ -484,6 +480,7 @@ function renderSummary(best){
 }
 
 function renderBars(best){
+  if (!$('bars')) return; // 扣車單價比較長條圖已從版面移除
   const rows = props.map(p => ({p, u: calc(p).unit})).filter(r => r.u != null).sort((a,b) => a.u - b.u);
   if (!rows.length){ $('bars').innerHTML = '<p class="msg">補齊總價、坪數與車位資料後會出現在這裡。</p>'; return; }
   const max = Math.max(...rows.map(r => r.u));
