@@ -520,15 +520,83 @@ $('dlImg').addEventListener('click', async () => {
   if (!lastCanvas) return;
   saveBlob(await blobOf(lastCanvas), fname('png'));
 });
+// ---- PDF 位置地圖頁：用 OpenStreetMap 圖磚畫成一張圖 ----
+const mx = (lon, z) => (lon + 180) / 360 * 256 * 2 ** z;
+const my = (lat, z) => { const r = lat * Math.PI / 180; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 256 * 2 ** z; };
+const loadTile = src => new Promise(res => { const im = new Image(); im.crossOrigin = 'anonymous'; const t = setTimeout(() => res(null), 8000); im.onload = () => { clearTimeout(t); res(im); }; im.onerror = () => { clearTimeout(t); res(null); }; im.src = src; });
+async function drawMapPage(withTiles = true){
+  const list = sorted(), best = bestId();
+  const pts = list.map((p, i) => ({p, i})).filter(o => o.p.lat != null && o.p.lng != null);
+  if (!pts.length) return null;
+  const S = 2, W = 1190, H = 842, PAD = 28, MT = 96;
+  const legendRows = Math.ceil(list.length / 2), LH = 22 + legendRows * 24 + 40;
+  const MW = W - PAD * 2, MH = H - MT - LH - PAD;
+  let z = 16;
+  for (; z > 9; z--){
+    const xs = pts.map(o => mx(o.p.lng, z)), ys = pts.map(o => my(o.p.lat, z));
+    if (Math.max(...xs) - Math.min(...xs) <= MW - 140 && Math.max(...ys) - Math.min(...ys) <= MH - 120) break;
+  }
+  if (pts.length === 1) z = Math.min(z, 15);
+  const xs = pts.map(o => mx(o.p.lng, z)), ys = pts.map(o => my(o.p.lat, z));
+  const x0 = (Math.max(...xs) + Math.min(...xs)) / 2 - MW / 2, y0 = (Math.max(...ys) + Math.min(...ys)) / 2 - MH / 2;
+  const cv = document.createElement('canvas'); cv.width = W * S; cv.height = H * S;
+  const ctx = cv.getContext('2d'); ctx.setTransform(S, 0, 0, S, 0, 0);
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#141414'; ctx.font = `700 24px ${FONT}`; ctx.fillText('物件位置地圖', PAD, 46);
+  ctx.font = `400 13px ${FONT}`; ctx.fillStyle = '#6b655e';
+  const client = $('client').value.trim(); ctx.fillText(client ? client + ' 您好，以下為比較物件的概略位置' : '比較物件的概略位置', PAD, 72);
+  ctx.fillStyle = '#c8371e'; ctx.fillRect(PAD, 82, W - PAD * 2, 3);
+  ctx.save(); ctx.beginPath(); ctx.rect(PAD, MT, MW, MH); ctx.clip();
+  ctx.fillStyle = '#ece9e4'; ctx.fillRect(PAD, MT, MW, MH);
+  if (withTiles){
+    const n = 2 ** z, jobs = [];
+    for (let tx = Math.floor(x0 / 256); tx <= Math.floor((x0 + MW) / 256); tx++)
+      for (let ty = Math.floor(y0 / 256); ty <= Math.floor((y0 + MH) / 256); ty++){
+        if (ty < 0 || ty >= n) continue;
+        const wx = ((tx % n) + n) % n;
+        jobs.push(loadTile(`https://tile.openstreetmap.org/${z}/${wx}/${ty}.png`).then(im => { if (im) ctx.drawImage(im, PAD + tx * 256 - x0, MT + ty * 256 - y0, 256, 256); }));
+      }
+    await Promise.all(jobs);
+  }
+  pts.forEach(({p, i}) => {
+    const x = PAD + mx(p.lng, z) - x0, y = MT + my(p.lat, z) - y0;
+    ctx.beginPath(); ctx.arc(x, y + 2, 17, 0, Math.PI * 2); ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fill();
+    ctx.beginPath(); ctx.arc(x, y, 17, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill();
+    ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI * 2); ctx.fillStyle = p.id === best ? '#141414' : '#c8371e'; ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = `700 15px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(i + 1), x, y + 1);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  });
+  ctx.restore();
+  ctx.strokeStyle = '#d2cdc6'; ctx.lineWidth = 1; ctx.strokeRect(PAD + .5, MT + .5, MW - 1, MH - 1);
+  ctx.font = `400 10px ${FONT}`; ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.fillRect(PAD + MW - 150, MT + MH - 18, 150, 18);
+  ctx.fillStyle = '#555'; ctx.textAlign = 'right'; ctx.fillText('© OpenStreetMap 貢獻者', PAD + MW - 6, MT + MH - 5); ctx.textAlign = 'left';
+  const ly = MT + MH + 30, colW = (W - PAD * 2) / 2;
+  list.forEach((p, i) => {
+    const x = PAD + (i % 2) * colW, y = ly + Math.floor(i / 2) * 24, has = p.lat != null;
+    ctx.beginPath(); ctx.arc(x + 10, y - 5, 10, 0, Math.PI * 2); ctx.fillStyle = !has ? '#d2cdc6' : p.id === best ? '#141414' : '#c8371e'; ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = `700 11px ${FONT}`; ctx.textAlign = 'center'; ctx.fillText(String(i + 1), x + 10, y - 1); ctx.textAlign = 'left';
+    ctx.fillStyle = '#141414'; ctx.font = `400 14px ${FONT}`;
+    const label = `${p.title || p.code || '未命名'}${p.community ? '（' + p.community + '）' : ''}${has ? '' : '　未定位'}`;
+    ctx.fillText(wrap(ctx, label, colW - 40, 1)[0] || '', x + 28, y);
+  });
+  ctx.fillStyle = '#6b655e'; ctx.font = `400 12px ${FONT}`;
+  ctx.fillText('位置依社區名稱或地址搜尋，屬概略位置，實際以現場為準。', PAD, H - 18);
+  try { cv.toDataURL('image/png'); } catch(e){ return withTiles ? drawMapPage(false) : null; }
+  return cv;
+}
 $('dlPdf').addEventListener('click', async () => {
   if (!lastCanvas || !window.jspdf) { $('omsg').textContent = 'PDF 元件沒有載入。'; return; }
   try {
+    $('omsg').textContent = '產生 PDF 中…';
     const {jsPDF} = window.jspdf; const doc = new jsPDF({orientation:'landscape', unit:'mm', format:'a4'});
-    const pw = 297, ph = 210, m = 8; const r = Math.min((pw-2*m)/lastCanvas.width, (ph-2*m)/lastCanvas.height);
-    const w = lastCanvas.width*r, h = lastCanvas.height*r;
-    doc.addImage(lastCanvas.toDataURL('image/png'), 'PNG', (pw-w)/2, m, w, h);
+    const pw = 297, ph = 210, m = 8;
+    const place = (cv, type) => { const r = Math.min((pw-2*m)/cv.width, (ph-2*m)/cv.height); const w = cv.width*r, h = cv.height*r; doc.addImage(cv.toDataURL(type === 'JPEG' ? 'image/jpeg' : 'image/png', .9), type, (pw-w)/2, m, w, h); };
+    place(lastCanvas, 'PNG');
+    const mp = await drawMapPage();
+    if (mp){ doc.addPage('a4', 'landscape'); place(mp, 'JPEG'); }
     saveBlob(doc.output('blob'), fname('pdf'));
-  } catch(e){ $('omsg').textContent = '沒有下載成功（可能被取消）。'; }
+    $('omsg').textContent = mp ? 'PDF 已下載（第 2 頁為位置地圖）。' : 'PDF 已下載。物件都還沒定位，所以沒有附地圖頁。';
+  } catch(e){ $('omsg').textContent = '沒有下載成功，請再試一次。'; }
 });
 $('cpImg').addEventListener('click', async () => {
   try { await navigator.clipboard.write([new ClipboardItem({'image/png': blobOf(lastCanvas)})]); $('omsg').textContent = '圖片已複製，可以直接貼到 LINE。'; }
