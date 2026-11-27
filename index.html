@@ -1239,7 +1239,11 @@ async function geocodeG(q){
   if (r.status === 404) { geoCache[k] = null; store.set('pc-geo', geoCache); return null; }
   const j = await r.json().catch(() => null);
   if (!r.ok || !j || j.lat == null) throw new Error('geoG');
-  const v = [+j.lat, +j.lng, j.addr || '']; geoCache[k] = v; store.set('pc-geo', geoCache); return v;
+  // Google 找不到時會亂猜到別的縣市：結果不在查詢的縣市、或只是部分符合的大概位置，都當作找不到
+  const T = x => String(x || '').replace(/臺/g, '台'), city = splitAddr(q).city;
+  if ((city && !T(j.addr).includes(T(city))) || (j.partial && j.type === 'APPROXIMATE')) { geoCache[k] = null; store.set('pc-geo', geoCache); return null; }
+  const nice = String(j.addr || '').replace(/^\d{3,6}/, '').replace(/^(台灣|臺灣)/, '').replace(/号號/g, '號').replace(/号/g, '號');
+  const v = [+j.lat, +j.lng, nice]; geoCache[k] = v; store.set('pc-geo', geoCache); return v;
 }
 // 給 Google 用的查詢：完整地址（沒寫城市就補上其他物件的城市），再來是社區名稱
 const gQueries = p => {
