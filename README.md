@@ -20,3 +20,6 @@ Settings → Pages → Source 選「Deploy from a branch」，Branch 選 `main`�
 新增網址時要把網址加進 Worker 開頭的 `A` 清單。Worker 也連著這個 repo（路徑 `/worker`、設定在
 `worker/wrangler.toml`），推到 `main` 就會自動重新部署。讀過的物件會存在 KV（`prop-cache`）6 小時，
 網頁上的「↻ 更新官網資料」會帶 `refresh=1` 跳過存檔重抓。
+
+帶看路線的車程用 Google Routes API（含即時路況），經 Worker 的 `/route` 呼叫，金鑰存在 Worker Secret `GMAPS_KEY`；
+每天最多 150 次（`ROUTE_DAILY_MAX` 可調），同路線 10 分鐘內用 KV 暫存。沒有金鑰或超過上限時，網頁自動改用 OSRM 乘路況倍數估算。
