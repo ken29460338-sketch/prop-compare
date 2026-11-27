@@ -299,7 +299,7 @@ const FIELD = {
   title:{l:'案名'}, community:{l:'社區'}, area:{l:'登記坪數',n:1}, mainArea:{l:'主建物',n:1}, balcony:{l:'陽台',n:1},
   layout:{l:'格局',ph:'3房2廳2衛'}, builtDate:{l:'完成日',ph:'2016/05'}, age:{l:'屋齡(年)',n:1}, floor:{l:'樓層',ph:'8樓/12樓'},
   unitsPerFloor:{l:'該層戶數',n:1}, units:{l:'總戶數',n:1}, parkType:{l:'車位類型',ph:'坡道平面／無'}, parkArea:{l:'車位坪數',n:1},
-  parkPrice:{l:'車位價(萬)',n:1}, parkNo:{l:'車位編號',ph:'B2-68、B2-69'}, elevators:{l:'電梯(部)',n:1}, guard:{l:'警衛管理',ph:'全天候'}, mgmtFee:{l:'管理費(元/月)',n:1}, address:{l:'地址'},
+  parkPrice:{l:'車位價(萬)',n:1}, parkNo:{l:'車位編號',ph:'B2-68、B2-69'}, landArea:{l:'土地坪數',n:1}, landUnit:{l:'地坪單價(萬)',n:1,ph:'空白＝自動計算'}, roadWidth:{l:'路寬',ph:'8米'}, elevators:{l:'電梯(部)',n:1}, guard:{l:'警衛管理',ph:'全天候'}, mgmtFee:{l:'管理費(元/月)',n:1}, address:{l:'地址'},
   direction:{l:'朝向'}, memo:{l:'備註'}, price:{l:'總價(萬)',n:1}
 };
 const nf = v => String(Math.round(v * 100) / 100);
@@ -314,6 +314,12 @@ const ROWS = [
   {k:'mainBal', l:'主建物＋陽台', f:['mainArea','balcony'], icon:'plan',
     show:p => { const m = num(p.mainArea), b = num(p.balcony); return (m == null && b == null) ? '' : `約${nf((m||0)+(b||0))}坪`; },
     sub:p => { const m = num(p.mainArea), b = num(p.balcony); return (m == null && b == null) ? '' : `主${nf(m||0)}坪 + 陽台${nf(b||0)}坪`; }},
+  {k:'land', l:'土地登記坪數', f:['landArea'], icon:'land', show:p => num(p.landArea) != null ? `約${nf(num(p.landArea))}坪` : ''},
+  {k:'landUnit', l:'地坪單價', f:['landUnit','landArea'], icon:'calc', show:p => {
+    // 有手填就用手填，否則用 總價 ÷ 土地登記坪數
+    const v = num(p.landUnit) != null ? num(p.landUnit) : (num(p.price) && num(p.landArea) ? num(p.price) / num(p.landArea) : null);
+    return v != null ? `約${f2(v)}萬/坪` : ''; }},
+  {k:'road', l:'門前道路寬', f:['roadWidth'], icon:'road', show:p => { const t = String(p.roadWidth ?? '').trim(); return !t ? '' : /^[\d.]+$/.test(t) ? `${t}米` : t; }},
   {k:'layout', l:'格局', f:['layout'], icon:'sofa', show:p => p.layout || ''},
   {k:'age', l:'建築完成日／屋齡', f:['builtDate','age'], icon:'cal', show:p => [p.builtDate, num(p.age) != null ? `${nf(num(p.age))}年` : ''].filter(Boolean).join(' / ')},
   {k:'floor', l:'樓層', f:['floor'], icon:'bldg', show:p => String(p.floor || '').replace(/\s*[\/／]\s*/g, ' / ')},
@@ -343,11 +349,14 @@ const ICONS = {
   car:'M5 16v-4l2-5h10l2 5v4 M3 16h18v3H3z M7 19v1.5 M17 19v1.5 M5 12h14',
   shield:'M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z',
   compass:'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M15.5 8.5l-2 5-5 2 2-5z',
-  note:'M6 3h9l3 3v15H6z M9 9h6 M9 13h6 M9 17h4'
+  note:'M6 3h9l3 3v15H6z M9 9h6 M9 13h6 M9 17h4',
+  land:'M3 20l4-14h10l4 14z M9.5 6L8 20 M14.5 6L16 20 M4.6 13h14.8',
+  calc:'M6 3h12v18H6z M9 7h6 M9 11h.01 M12 11h.01 M15 11h.01 M9 14.5h.01 M12 14.5h.01 M15 14.5h.01 M9 18h6',
+  road:'M8 3L5 21 M16 3l3 18 M12 4v3 M12 10v3 M12 16v3'
 };
 const iconSvg = k => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[k] || ''}"/></svg>`;
 const SORTS = [['unit','扣車單價'],['price','總價'],['withPark','平均單價'],['area','登記坪數'],['age','屋齡'],['mgmtFee','管理費']];
-const DEFAULT_HIDE = ['direction','memo','title'];
+const DEFAULT_HIDE = ['direction','memo','title','land','landUnit','road'];
 
 const SAMPLE = [
   {id:'s1',code:'範例1',title:'園道景觀三房平車',address:'台中市南區忠明南路',price:2180,origPrice:2380,area:56.2,mainArea:27.23,age:13.1,floor:'10樓/15樓',layout:'3房2廳2衛',parkType:'坡道平面',parkArea:9.01,parkPrice:250,mgmtFee:2845,elevator:'有'},
@@ -359,6 +368,7 @@ let props = store.get('pc-props', null);
 let isSample = false;
 if (!props || !props.length) { props = SAMPLE.map(p => ({...p})); isSample = true; }
 let hide = store.get('pc-hide3', DEFAULT_HIDE);
+if (!store.get('pc-hideV4', false)){ hide = [...new Set([...hide, 'land', 'landUnit', 'road'])]; store.set('pc-hide3', hide); store.set('pc-hideV4', true); }
 let sortKey = 'unit', sortAsc = true;
 let fontScale = store.get('pc-fs', 1.15); // 比較表內容字體倍率（總價列不受影響）
 let lastCanvas = null, replaceMode = false;
@@ -818,7 +828,7 @@ $('shImg').addEventListener('click', async () => {
 });
 
 // ---- share link: whole report packed into the URL hash ----
-const KEEP = ['parkNo','elevators','balcony','guard','unitsPerFloor','layoutImage','lat','lng','code','title','community','address','price','origPrice','area','mainArea','age','floor','layout','direction','parkType','parkArea','parkPrice','parkEst','mgmtFee','units','elevator','builtDate','parkNo','memo','url'];
+const KEEP = ['landArea','landUnit','roadWidth','parkNo','elevators','balcony','guard','unitsPerFloor','layoutImage','lat','lng','code','title','community','address','price','origPrice','area','mainArea','age','floor','layout','direction','parkType','parkArea','parkPrice','parkEst','mgmtFee','units','elevator','builtDate','parkNo','memo','url'];
 const b64u = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 const unb64u = s => Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')), c => c.charCodeAt(0));
 async function pack(obj){
@@ -994,7 +1004,8 @@ function applyOfficial(p, d){
   const v = raw ? {
     title: S(d.name).replace(/^專任/, ''), community: S(d.commName), address: S(d.address),
     price: num(d.totalPrice), origPrice: num(d.priceFirst), area: num(d.areaBuilding),
-    mainArea: area('主建物'), balcony: area('陽台'), parkArea: area('停車'),
+    mainArea: area('主建物'), balcony: area('陽台'), parkArea: area('停車'), landArea: num(d.areaLand),
+    landUnit: /萬/.test(S(d.landUniprice)) ? num((S(d.landUniprice).match(/([\d,.]+)/) || [])[1]) : null,
     // 官網車位欄可能寫成「1個坡道平面(車位總價：200萬)」，類型和價格要拆開
     parkType: d.isParking ? (S(d.parking).replace(/^\d+個/, '').replace(/[（(][^)）]*[)）]/g, '').trim() || '有') : '無',
     parkPrice: num((S(d.parking).match(/([\d,.]+)\s*萬/) || (S(d.parkPriceSource) + S(d.uniPrice)).match(/車位[^\d]*([\d,.]+)\s*萬/) || [])[1]),
@@ -1003,14 +1014,15 @@ function applyOfficial(p, d){
     lat: num(d.latitude), lng: num(d.longitude), layoutImage: S(d.layoutImage)
   } : d;
   if (num(v.price)) { p.price = num(v.price); if (num(v.origPrice)) p.origPrice = num(v.origPrice); }
-  for (const k of ['area','mainArea','balcony','age','parkArea','mgmtFee']) if (num(v[k]) != null) p[k] = num(v[k]);
+  for (const k of ['area','mainArea','balcony','age','parkArea','mgmtFee','landArea']) if (num(v[k]) != null) p[k] = num(v[k]);
+  if (num(v.landUnit) != null && num(p.landUnit) == null) p.landUnit = num(v.landUnit);
   if (num(v.parkPrice) && !num(p.parkPrice)) { p.parkPrice = num(v.parkPrice); p.parkEst = false; }
   for (const k of ['floor','layout','direction','community','parkType','guard']) if (S(v[k])) p[k] = S(v[k]);
   if (/^https:\/\/res\.sinyi\.com\.tw\//.test(v.layoutImage || '')) p.layoutImage = v.layoutImage;
   if (S(v.address) && (!p.address || S(v.address).includes(p.address))) p.address = S(v.address);
   if (!p.title && S(v.title)) p.title = S(v.title);
   if (num(v.lat) && num(v.lng)) { p.lat = num(v.lat); p.lng = num(v.lng); p.manualLoc = true; p.locOfficial = true; }
-  p.officialAt = Date.now(); p.officialVer = 2; delete p.officialFail;
+  p.officialAt = Date.now(); p.officialVer = 3; delete p.officialFail;
 }
 async function fetchOfficial(list){
   if (!FETCH_URL || !list.length) return 0;
@@ -1160,7 +1172,7 @@ async function boot(){
   }
   renderCols(); render();
   if (store.get('pc-tourOpen', false) && props.length && !isSample) $('tour').hidden = false;
-  if (FETCH_URL && !isSample){ const todo = props.filter(p => isCode(p.code) && p.officialVer !== 2); if (todo.length) fetchOfficial(todo); }
+  if (FETCH_URL && !isSample){ const todo = props.filter(p => isCode(p.code) && p.officialVer !== 3); if (todo.length) fetchOfficial(todo); }
 }
 boot();
 }
