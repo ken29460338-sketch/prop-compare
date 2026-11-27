@@ -133,12 +133,14 @@ button.sec{background:var(--panel);border-color:var(--rule)}
 #tbl tbody .rowh{display:table-cell}
 #tbl .rowh .ic{width:22px;height:22px;vertical-align:-5px;margin-right:10px;fill:none;stroke:#8a9a7c;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
 #tbl thead .rowh{z-index:2;color:#fff;font-weight:500}
-#tbl td{min-width:230px;cursor:pointer}
+#tbl td{min-width:230px;cursor:pointer;text-align:center;font-size:calc(16px * var(--fs,1.15))}
+#tbl td .sb{font-size:calc(14px * var(--fs,1.15))}
 #tbl td:hover{background:#f7f3ea}
 #tbl .mn{display:block}
 #tbl .sb{display:block;font-size:14px;color:#5d5a50}
 #tbl .sb.warn{color:#9a968b}
-#tbl tr.st td{background:#f6efe3;text-align:center}
+#tbl tr.st td{background:#f6efe3;text-align:center;font-size:16px}
+#tbl tr.st td .sb{font-size:14px}
 #tbl tr.st td .mn{font:700 20px "Noto Serif TC",serif;color:#6b5a3e}
 #tbl tr.st td:hover{background:#f1e8d8}
 #tbl td.bc{box-shadow:none}
@@ -358,6 +360,7 @@ let isSample = false;
 if (!props || !props.length) { props = SAMPLE.map(p => ({...p})); isSample = true; }
 let hide = store.get('pc-hide3', DEFAULT_HIDE);
 let sortKey = 'unit', sortAsc = true;
+let fontScale = store.get('pc-fs', 1.15); // 比較表內容字體倍率（總價列不受影響）
 let lastCanvas = null, replaceMode = false;
 
 function calc(p){
@@ -419,7 +422,8 @@ function bestId(){ let b = null, v = Infinity; for (const p of props){ const u =
 function renderCols(){
   const hidden = ROWS.filter(r => hide.includes(r.k));
   $('cols').innerHTML = `<label class="srtl">排序 <select id="sortSel">${SORTS.map(([k,l]) => `<option value="${k}" ${k===sortKey?'selected':''}>${l}</option>`).join('')}</select></label>
-    <button class="s" id="sortDir">${sortAsc ? '由低到高' : '由高到低'}</button>` +
+    <button class="s" id="sortDir">${sortAsc ? '由低到高' : '由高到低'}</button>
+    <label class="srtl">字體大小 <select id="fsSel">${[[1,'標準'],[1.15,'大'],[1.3,'特大'],[1.45,'超大']].map(([v,l]) => `<option value="${v}" ${v===fontScale?'selected':''}>${l}</option>`).join('')}</select></label>` +
     (hidden.length ? `<span class="msg">已隱藏：</span>` + hidden.map(r => `<button class="s" data-show="${r.k}">${esc(r.l)} ↺</button>`).join('') : '');
 }
 function cellHtml(p, r){
@@ -441,6 +445,7 @@ function render(){
     const body = '<tbody>' + rows.map(r => `<tr class="${r.strong ? 'st' : ''}"><th class="rowh"><button class="x" data-hide="${r.k}" aria-label="隱藏這列">⊗</button>${iconSvg(r.icon)}<span>${esc(r.l)}</span></th>` +
       list.map(p => `<td class="${p.id===best?'bc':''}" data-id="${esc(p.id)}" data-row="${r.k}" tabindex="0">${cellHtml(p, r)}</td>`).join('') + '</tr>').join('') + '</tbody>';
     $('tbl').innerHTML = head + body;
+    $('tbl').style.setProperty('--fs', fontScale);
   }
   $('sample').textContent = isSample ? '目前顯示的是範例資料，貼上你的物件後會自動取代。' : '';
   renderSummary(best); renderBars(best);
@@ -539,7 +544,10 @@ $('tbl').addEventListener('focusout', e => {
   const td = e.target.closest('td.ed'); if (!td) return;
   setTimeout(() => { if (td.isConnected && !td.contains(document.activeElement)) closeEditor(td); }, 0);
 });
-$('cols').addEventListener('change', e => { if (e.target.id === 'sortSel'){ sortKey = e.target.value; render(); } });
+$('cols').addEventListener('change', e => {
+  if (e.target.id === 'sortSel'){ sortKey = e.target.value; render(); }
+  if (e.target.id === 'fsSel'){ fontScale = Number(e.target.value); store.set('pc-fs', fontScale); render(); if ($('prev').style.display === 'block') drawImage(); }
+});
 $('cols').addEventListener('click', e => {
   if (e.target.id === 'sortDir'){ sortAsc = !sortAsc; render(); return; }
   const b = e.target.closest('[data-show]'); if (b){ hide = hide.filter(x => x !== b.dataset.show); store.set('pc-hide3', hide); render(); }
@@ -585,7 +593,12 @@ function drawImage(){
   const n = Math.max(list.length, 1), S = 2, PAD = 28, GAP = 12, LW = 300;
   const CW = n <= 3 ? 430 : n === 4 ? 380 : 330;
   const W = PAD * 2 + LW + n * (CW + GAP), TOP = 168, HH = 72;
-  const rh = r => r.k === 'total' ? 104 : r.sub ? 80 : 56;
+  const VF = Math.round(22 * fontScale), LH = Math.round(VF * 1.38), MW = CW - 48;
+  const mctx = $('cv').getContext('2d'); mctx.font = `400 ${VF}px ${FONT}`;
+  const linesOf = (r, p) => { const t = r.show(p); if (!t) return []; const ls = wrap(mctx, t, MW - (r.k === 'address' ? 32 : 0), 2); const sub = r.sub ? r.sub(p) : ''; return sub ? ls.concat(wrap(mctx, sub, MW, 1)) : ls; };
+  const rowH = {};
+  rows.forEach(r => { rowH[r.k] = r.k === 'total' ? 104 : Math.max(56, 26 + LH * Math.max(1, ...list.map(p => linesOf(r, p).length))); });
+  const rh = r => rowH[r.k];
   const bodyH = rows.reduce((t, r) => t + rh(r), 0);
   const H = TOP + HH + bodyH + 24 + 92;
   const cv = $('cv'), ctx = cv.getContext('2d');
@@ -636,9 +649,9 @@ function drawImage(){
   rows.forEach((r, ri) => {
     const h = rh(r);
     drawIcon(ctx, r.icon, PAD + 28, y + h / 2 - 15, 30, '#8a9a7c');
-    ctx.fillStyle = INK; ctx.font = `400 23px ${FONT}`; ctx.fillText(r.l, PAD + 80, y + h / 2 + 8);
+    ctx.fillStyle = INK; ctx.font = `400 ${Math.round(23 * Math.min(fontScale, 1.15))}px ${FONT}`; ctx.fillText(r.l, PAD + 80, y + h / 2 + 8);
     cols.slice(1).forEach(c => {
-      const p = c.p, x = c.x + 34, mw = c.w - 60;
+      const p = c.p;
       if (r.k === 'total'){
         ctx.fillStyle = CREAM; rr(ctx, c.x + 6, y + 6, c.w - 12, h - 12, 10); ctx.fill();
         ctx.textAlign = 'center';
@@ -655,12 +668,19 @@ function drawImage(){
         ctx.textAlign = 'left';
         return;
       }
-      const t = r.show(p), sub = r.sub ? r.sub(p) : '';
-      let tx = x;
-      if (r.k === 'address' && t){ drawIcon(ctx, 'pin', x - 6, y + h / 2 - 13, 26, '#b49a6c'); tx = x + 30; }
-      ctx.fillStyle = INK; ctx.font = `400 22px ${FONT}`;
-      if (sub){ ctx.fillText(wrap(ctx, t, mw, 1)[0] || '', tx, y + h / 2 - 6); ctx.fillText(wrap(ctx, sub, mw, 1)[0] || '', tx, y + h / 2 + 26); }
-      else ctx.fillText(wrap(ctx, t, mw - (tx - x), 1)[0] || '', tx, y + h / 2 + 8);
+      // 物件內容置中，字體依「字體大小」設定
+      ctx.font = `400 ${VF}px ${FONT}`; ctx.fillStyle = INK;
+      const ls = linesOf(r, p), cx = c.x + c.w / 2;
+      const y0 = y + h / 2 - (ls.length * LH) / 2 + LH * 0.72;
+      ls.forEach((ln, j) => {
+        const ly = y0 + j * LH;
+        if (r.k === 'address' && j === 0){
+          const w = ctx.measureText(ln).width, sx = cx - (w + 30) / 2;
+          drawIcon(ctx, 'pin', sx - 2, ly - VF * 0.95, Math.round(VF * 1.15), '#b49a6c');
+          ctx.textAlign = 'left'; ctx.fillText(ln, sx + 30, ly);
+        } else { ctx.textAlign = 'center'; ctx.fillText(ln, cx, ly); }
+      });
+      ctx.textAlign = 'left';
     });
     if (ri < rows.length - 1){
       ctx.strokeStyle = LINE; ctx.lineWidth = 1; ctx.setLineDash([3, 4]);
