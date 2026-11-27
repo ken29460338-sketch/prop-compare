@@ -148,8 +148,11 @@ def lot_key(town, loc):
     m = re.search(r'([^\d,，、]*?段(?:[^\d]{1,3}小段)?)(\d+)(?:-(\d+))?地號', a)
     if not m:
         return None
-    sub = int(m.group(3)) if m.group(3) else 0
-    return (town, m.group(1), f'{int(m.group(2))}' + (f'-{sub}' if sub else ''))  # 0101-0000 → 101
+    main, sub = m.group(2), m.group(3)
+    if sub is None and len(main) == 8:  # 土地明細的地號是 8 碼：前 4 碼母號、後 4 碼子號（01230004 → 123-4）
+        main, sub = main[:4], main[4:]
+    sub = int(sub) if sub else 0
+    return (town, m.group(1), f'{int(main)}' + (f'-{sub}' if sub else ''))  # 0101-0000 → 101
 
 
 def land_loc(r, jl, jn):
@@ -418,11 +421,15 @@ def build_city(code):
     filled = 0
     for (town, road), lst in rows.items():
         for r in lst:
-            if not r[25] and r[3] is not None:
-                c = addr_name.get((town, road, r[2], r[3])) if r[3] == r[4] else None
-                if c:
-                    r[25] = c.most_common(1)[0][0]
-                    filled += 1
+            if r[3] is None or r[3] != r[4]:
+                continue
+            c = addr_name.get((town, road, r[2], r[3]))
+            if not c:
+                continue
+            top, n = c.most_common(1)[0]
+            if not r[25] or (r[25] != top and n >= 3 and c[r[25]] == 1):  # 補空白；同門牌多數一致時，修正零星的不同名稱
+                r[25] = top
+                filled += 1
     print('names propagated by address', filled, flush=True)
     out = os.path.join(OUT, code)
     if os.path.isdir(out):
