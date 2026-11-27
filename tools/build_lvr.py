@@ -152,6 +152,15 @@ def lot_key(town, loc):
     return (town, m.group(1), f'{int(m.group(2))}' + (f'-{sub}' if sub else ''))  # 0101-0000 → 101
 
 
+def land_loc(r, jl, jn):
+    """土地明細：土地位置只有地段（例：育賢段），地號在另一欄（例：0123-0000）→ 合成「育賢段0123-0000地號」"""
+    loc = r[jl] if jl is not None and jl < len(r) else ''
+    if '地號' in loc:
+        return loc
+    no = r[jn].strip() if jn is not None and jn < len(r) else ''
+    return f'{loc}{no}地號' if no else loc
+
+
 def lot_names(code):
     """預售屋：建案名稱 ↔ 建案坐落的地號（_B 主檔的編號 → 名稱，_B_LAND 的編號 → 地號）"""
     from collections import Counter
@@ -175,12 +184,12 @@ def lot_names(code):
                     lots.setdefault(k, Counter())[nm] += 1
         HL, land = read_csv(base + '_land.csv', '土地位置')
         if HL:
-            jid, jl = HL.get('編號'), HL.get('土地位置')
+            jid, jl, jn = HL.get('編號'), HL.get('土地位置'), HL.get('地號')
             for r in land:
                 if jid is None or jl is None or len(r) <= max(jid, jl):
                     continue
                 nm = names.get(r[jid])
-                k = nm and lot_key(towns.get(r[jid], ''), r[jl])
+                k = nm and lot_key(towns.get(r[jid], ''), land_loc(r, jl, jn))
                 if k:
                     lots.setdefault(k, Counter())[nm] += 1
         time.sleep(0.5)
@@ -384,13 +393,13 @@ def build_city(code):
             HL, land = read_csv(url, '土地位置')
             if not HL:
                 continue
-            jid, jl = HL.get('編號'), HL.get('土地位置')
+            jid, jl, jn = HL.get('編號'), HL.get('土地位置'), HL.get('地號')
             votes = {}
             for r in land:
                 if jid is None or jl is None or len(r) <= max(jid, jl) or r[jid] not in by_id:
                     continue
                 town, row = by_id[r[jid]]
-                nm = lotname.get(lot_key(town, r[jl]) or ())
+                nm = lotname.get(lot_key(town, land_loc(r, jl, jn)) or ())
                 if nm:
                     votes.setdefault(r[jid], Counter())[nm] += 1
             for i, c in votes.items():
