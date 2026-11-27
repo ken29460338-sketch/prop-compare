@@ -17,4 +17,6 @@ Settings → Pages → Source 選「Deploy from a branch」，Branch 選 `main`�
 - Cloudflare Pages：https://prop-compare.pages.dev/ （公司內網打不開 github.io 時用這個）
 
 官網資料由 `worker/sinyi-proxy.js`（Cloudflare Worker）提供，它只允許上面兩個網址呼叫；
-新增網址時要把網址加進 Worker 開頭的 `A` 清單並重新部署。
+新增網址時要把網址加進 Worker 開頭的 `A` 清單。Worker 也連著這個 repo（路徑 `/worker`、設定在
+`worker/wrangler.toml`），推到 `main` 就會自動重新部署。讀過的物件會存在 KV（`prop-cache`）6 小時，
+網頁上的「↻ 更新官網資料」會帶 `refresh=1` 跳過存檔重抓。
