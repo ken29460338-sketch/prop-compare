@@ -115,7 +115,59 @@ def safe(name):
     return re.sub(r'[\\/:*?"<>|]', '_', name)
 
 
+def presale_names(code):
+    """預售屋資料有「建案名稱」與門牌：整理成 (區, 路, 巷, 號) → 建案名稱，補到同門牌的成屋成交上"""
+    from collections import Counter
+    exact, ranges = {}, {}
+    urls = [f'{BASE}DownloadSeason?season={s}&fileName={code}_lvr_land_B.csv' for s in seasons()]
+    urls.append(f'{BASE}Download?fileName={code}_lvr_land_B.csv')
+    for url in urls:
+        b = get(url, tries=2)
+        if not b or len(b) < 200:
+            continue
+        rd = csv.reader(io.StringIO(decode(b)))
+        head = next(rd, None)
+        if not head or '建案名稱' not in ''.join(head):
+            continue
+        H = {h.strip(): i for i, h in enumerate(head)}
+        it, ia, iname = H.get('鄉鎮市區'), H.get('土地位置建物門牌'), H.get('建案名稱')
+        if None in (it, ia, iname):
+            continue
+        for r in rd:
+            if len(r) <= max(it, ia, iname) or r[0].startswith('The '):
+                continue
+            name = re.sub(r'\s+', '', r[iname])
+            if not name or name in ('-', '無'):
+                continue
+            sp = split_addr(r[ia], r[it].strip())
+            if not sp or sp[2] is None:
+                continue
+            road, lane, lo, hi, _ = sp
+            key = (r[it].strip(), road, lane)
+            if lo == hi:
+                exact.setdefault(key + (lo,), Counter())[name] += 1
+            else:
+                ranges.setdefault(key, []).append((lo, hi, name))
+        time.sleep(0.5)
+    ex = {k: c.most_common(1)[0][0] for k, c in exact.items()}
+    print('presale names', len(ex), 'ranges', sum(len(v) for v in ranges.values()), flush=True)
+    return ex, ranges
+
+
+def name_for(names, town, road, lane, lo, hi):
+    ex, ranges = names
+    if lo is None:
+        return ''
+    if lo == hi:
+        n = ex.get((town, road, lane, lo))
+        if n:
+            return n
+    cand = {nm for a, b, nm in ranges.get((town, road, lane), []) if a <= lo and hi <= b}
+    return cand.pop() if len(cand) == 1 else ''
+
+
 def build_city(code):
+    names = presale_names(code)
     rows = {}  # (town, road) -> [row]
     lands, houses = {}, {}  # town -> [row]（純土地、同區域透天）
     seen = set()
@@ -189,7 +241,7 @@ def build_city(code):
                     loc = loc[len(town):]
                 sec = (re.match(r'^(.+?段)', loc) or [None, ''])[1]
                 lrow = [int(d) if d else 0, loc, '', None, None, '', None, '土地', round(price / 10000), None, None, 0, None, None, None, '',
-                        '', 0, g('note')[:60], '', '', '', round(larea, 2) if larea else None, sec, zone]
+                        '', 0, g('note')[:60], '', '', '', round(larea, 2) if larea else None, sec, zone, '']
                 lands.setdefault(town, []).append(lrow)
                 continue
             sp = split_addr(g('addr'), town)
@@ -231,6 +283,7 @@ def build_city(code):
                 g('ptype'), round(pprice / 10000) if pprice else 0,   # 16 車位類別、17 車位價（萬）
                 g('note')[:60], g('mgmt'), g('lift'), g('use'),        # 18 備註、19 管理、20 電梯、21 用途
                 round(larea, 2) if larea else None, '', zone,          # 22 土地移轉總面積（㎡）、23 地段、24 使用分區
+                name_for(names, town, road, lane, lo, hi),             # 25 社區（建案）名稱：預售屋資料同門牌的建案名稱
             ]
             rows.setdefault((town, road), []).append(row)
             if '透天' in row[7]:
@@ -263,7 +316,7 @@ def build_city(code):
     meta = {'updated': datetime.date.today().isoformat(), 'rows': sum(len(v) for v in rows.values()),
             'cols': ['date', 'tail', 'lane', 'lo', 'hi', 'floor', 'floors', 'type', 'price', 'unit', 'unitNoPark',
                      'ping', 'mainPct', 'age', 'builtYear', 'layout', 'parkType', 'parkPrice', 'note', 'mgmt', 'lift', 'use',
-                     'landM2', 'section', 'zone'],
+                     'landM2', 'section', 'zone', 'community'],
             'extra': {'_土地': '純土地（每列同上欄位，位置在 tail、地段在 section）', '_透天': '同區域透天（每列最前面多一欄路名）'},
             'towns': index}
     with open(os.path.join(out, 'index.json'), 'w', encoding='utf-8') as f:
