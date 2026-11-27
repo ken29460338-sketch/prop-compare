@@ -869,8 +869,9 @@ function applyOfficial(p, d){
     title: S(d.name).replace(/^專任/, ''), community: S(d.commName), address: S(d.address),
     price: num(d.totalPrice), origPrice: num(d.priceFirst), area: num(d.areaBuilding),
     mainArea: area('主建物'), balcony: area('陽台'), parkArea: area('停車'),
-    parkType: d.isParking ? (S(d.parking).replace(/^\d+個/, '') || '有') : '無',
-    parkPrice: num((S(d.parkPriceSource) + S(d.uniPrice)).match(/車位[^\d]*([\d,.]+)\s*萬/)?.[1]),
+    // 官網車位欄可能寫成「1個坡道平面(車位總價：200萬)」，類型和價格要拆開
+    parkType: d.isParking ? (S(d.parking).replace(/^\d+個/, '').replace(/[（(][^)）]*[)）]/g, '').trim() || '有') : '無',
+    parkPrice: num((S(d.parking).match(/([\d,.]+)\s*萬/) || (S(d.parkPriceSource) + S(d.uniPrice)).match(/車位[^\d]*([\d,.]+)\s*萬/) || [])[1]),
     age: num(d.age), floor: d.floor ? `${S(d.floor)}樓/${S(d.floors)}樓` : '', layout: S(d.totalLayout || d.layout),
     direction: S(d.buildingFront), guard: S(d.hasmanager), mgmtFee: num((S(d.monthlyFee).match(/([\d,]+)\s*元/) || [])[1]),
     lat: num(d.latitude), lng: num(d.longitude), layoutImage: S(d.layoutImage)
@@ -883,7 +884,7 @@ function applyOfficial(p, d){
   if (S(v.address) && (!p.address || S(v.address).includes(p.address))) p.address = S(v.address);
   if (!p.title && S(v.title)) p.title = S(v.title);
   if (num(v.lat) && num(v.lng)) { p.lat = num(v.lat); p.lng = num(v.lng); p.manualLoc = true; p.locOfficial = true; }
-  p.officialAt = Date.now(); delete p.officialFail;
+  p.officialAt = Date.now(); p.officialVer = 2; delete p.officialFail;
 }
 async function fetchOfficial(list){
   if (!FETCH_URL || !list.length) return 0;
@@ -891,7 +892,7 @@ async function fetchOfficial(list){
   const one = async p => {
     p._st = '讀取官網中…'; const el = document.querySelector(`[data-st="${CSS.escape(p.id)}"]`); if (el) el.textContent = p._st;
     try {
-      const r = await fetch(FETCH_URL + '?code=' + encodeURIComponent(p.code));
+      const r = await fetch(FETCH_URL + '?code=' + encodeURIComponent(p.code), {cache: 'no-cache'});
       if (!r.ok) throw new Error(r.status);
       applyOfficial(p, await r.json()); ok++; p._st = '';
     } catch(e){ p.officialFail = true; p._st = '官網讀取失敗'; }
@@ -1033,7 +1034,7 @@ async function boot(){
   }
   renderCols(); render();
   if (store.get('pc-tourOpen', false) && props.length && !isSample) $('tour').hidden = false;
-  if (FETCH_URL && !isSample){ const todo = props.filter(p => isCode(p.code) && !p.officialAt); if (todo.length) fetchOfficial(todo); }
+  if (FETCH_URL && !isSample){ const todo = props.filter(p => isCode(p.code) && p.officialVer !== 2); if (todo.length) fetchOfficial(todo); }
 }
 boot();
 }
