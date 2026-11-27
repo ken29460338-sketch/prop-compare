@@ -116,7 +116,8 @@ def safe(name):
 
 
 def build_city(code):
-    rows = {}  # (town, road) -> {id: row}
+    rows = {}  # (town, road) -> [row]
+    lands, houses = {}, {}  # town -> [row]（純土地、同區域透天）
     seen = set()
     files = [(s, f'{BASE}DownloadSeason?season={s}&fileName={code}_lvr_land_A.csv') for s in seasons()]
     # 本期（每 10 天一批，只提供最新一批）：每次下載都存一份到 data/lvr/raw/，季資料出來前才不會漏掉中間幾批
@@ -154,7 +155,8 @@ def build_city(code):
                     if h == n or h.replace('(', '').replace(')', '') == n:
                         return i
             return None
-        C = dict(town=col('鄉鎮市區'), target=col('交易標的'), addr=col('土地位置建物門牌'), date=col('交易年月日'),
+        C = dict(larea=col('土地移轉總面積平方公尺'), zone=col('都市土地使用分區'), nzone=col('非都市土地使用分區'),
+                 town=col('鄉鎮市區'), target=col('交易標的'), addr=col('土地位置建物門牌'), date=col('交易年月日'),
                  floor=col('移轉層次'), floors=col('總樓層數'), btype=col('建物型態'), use=col('主要用途'),
                  built=col('建築完成年月'), area=col('建物移轉總面積平方公尺'), rooms=col('建物現況格局-房'),
                  halls=col('建物現況格局-廳'), baths=col('建物現況格局-衛'), mgmt=col('有無管理組織'),
@@ -166,13 +168,30 @@ def build_city(code):
             if not r or len(r) < 10 or r[0].startswith('The ') or r[0] == 'The villages and towns urban district':
                 continue
             g = lambda k: (r[C[k]].strip() if C[k] is not None and C[k] < len(r) else '')
-            if '建物' not in g('target'):
-                continue  # 只要有建物的交易（房地、房地＋車）
+            target = g('target')
+            land_only = target == '土地'
+            if '建物' not in target and not land_only:
+                continue  # 有建物的交易（房地、房地＋車）＋純土地；車位單獨交易不收
             rid = g('id') or (g('addr') + g('date') + g('price'))
             if rid in seen:
                 continue
             seen.add(rid)
             town = g('town')
+            larea = num(g('larea'))
+            zone = (g('zone') or g('nzone'))[:12]
+            if land_only:  # 純土地：位置是「XX段XX地號」，沒有路名，依地段與行政區歸檔
+                price = num(g('price')) or 0
+                if price <= 0:
+                    continue
+                d = re.sub(r'\D', '', g('date'))
+                loc = re.sub(r'^(臺|台)?中市', '', str(g('addr')).translate(FW).replace(' ', ''))
+                if loc.startswith(town):
+                    loc = loc[len(town):]
+                sec = (re.match(r'^(.+?段)', loc) or [None, ''])[1]
+                lrow = [int(d) if d else 0, loc, '', None, None, '', None, '土地', round(price / 10000), None, None, 0, None, None, None, '',
+                        '', 0, g('note')[:60], '', '', '', round(larea, 2) if larea else None, sec, zone]
+                lands.setdefault(town, []).append(lrow)
+                continue
             sp = split_addr(g('addr'), town)
             if not sp:
                 continue
@@ -211,8 +230,11 @@ def build_city(code):
                 f"{g('rooms')}/{g('halls')}/{g('baths')}",             # 15 格局 房/廳/衛
                 g('ptype'), round(pprice / 10000) if pprice else 0,   # 16 車位類別、17 車位價（萬）
                 g('note')[:60], g('mgmt'), g('lift'), g('use'),        # 18 備註、19 管理、20 電梯、21 用途
+                round(larea, 2) if larea else None, '', zone,          # 22 土地移轉總面積（㎡）、23 地段、24 使用分區
             ]
             rows.setdefault((town, road), []).append(row)
+            if '透天' in row[7]:
+                houses.setdefault(town, []).append([road] + row)  # 同區域透天（路段案例不足時用）
             n += 1
         print('ok', tag, n, flush=True)
         time.sleep(1)
@@ -231,9 +253,18 @@ def build_city(code):
         index.setdefault(town, []).append(road)
     for t in index:
         index[t].sort()
+    for name, bucket in (('_土地', lands), ('_透天', houses)):  # 每區一個檔：同區域土地、同區域透天
+        for town, lst in bucket.items():
+            lst.sort(key=lambda x: -(x[1] if name == '_透天' else x[0]))
+            p = os.path.join(out, safe(town))
+            os.makedirs(p, exist_ok=True)
+            with open(os.path.join(p, name + '.json'), 'w', encoding='utf-8') as f:
+                json.dump(lst, f, ensure_ascii=False, separators=(',', ':'))
     meta = {'updated': datetime.date.today().isoformat(), 'rows': sum(len(v) for v in rows.values()),
             'cols': ['date', 'tail', 'lane', 'lo', 'hi', 'floor', 'floors', 'type', 'price', 'unit', 'unitNoPark',
-                     'ping', 'mainPct', 'age', 'builtYear', 'layout', 'parkType', 'parkPrice', 'note', 'mgmt', 'lift', 'use'],
+                     'ping', 'mainPct', 'age', 'builtYear', 'layout', 'parkType', 'parkPrice', 'note', 'mgmt', 'lift', 'use',
+                     'landM2', 'section', 'zone'],
+            'extra': {'_土地': '純土地（每列同上欄位，位置在 tail、地段在 section）', '_透天': '同區域透天（每列最前面多一欄路名）'},
             'towns': index}
     with open(os.path.join(out, 'index.json'), 'w', encoding='utf-8') as f:
         json.dump(meta, f, ensure_ascii=False, separators=(',', ':'))

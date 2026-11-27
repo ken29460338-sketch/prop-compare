@@ -1414,6 +1414,58 @@ function lvrWindow(hit){
   for (const y of [3, 6]){ const l = hit.filter(r => r[0] >= cut(y)); if (l.length >= 3) return {list: l, label: `近 ${y} 年`}; }
   return {list: hit, label: '全部（近年成交太少，已往前拉）'};
 }
+// 產品類別：手動選的優先；沒選就依標題、樓層與坪數判斷
+function lvrCat(p){
+  if (p.lvrCat) return p.lvrCat;
+  const t = `${p.title || ''} ${p.layout || ''}`, fl = String(p.floor || '');
+  if (/土地|建地|農地|素地|工業地|墓地|林地/.test(t) && !(num(p.area) > 0 && num(p.mainArea) > 0)) return 'land';
+  if (/透天|別墅|樓店|店住|農舍|整棟/.test(t) || /[~～\-全]|整棟/.test(fl.split('/')[0])) return 'house';
+  const floors = +((fl.match(/\/\s*(\d+)/) || [])[1] || 0);
+  if (num(p.landArea) >= 15 && floors && floors <= 5 && !p.community) return 'house';
+  return 'condo';
+}
+const LVR_CAT = {condo: '社區大樓', house: '透天', land: '土地'};
+async function lvrFile(town, name){ return lvrRoad(town, name); }
+const landPing = r => r[22] ? r[22] * 0.3025 : null; // ㎡→坪（先用未四捨五入的坪數算單價）
+function lvrSpanPick(list, min){ // 依目前期間設定挑資料；自動模式少於 min 筆就往前拉
+  const now = rocNow(), cut = y => now - y * 10000;
+  if (lvrSpan === 'all') return {list, label: '全部'};
+  if (lvrSpan === '3' || lvrSpan === '6') return {list: list.filter(r => r[0] >= cut(+lvrSpan)), label: `近 ${lvrSpan} 年`};
+  for (const y of [3, 6]){ const l = list.filter(r => r[0] >= cut(y)); if (l.length >= min) return {list: l, label: `近 ${y} 年`}; }
+  return {list, label: '全部（近年成交太少，已往前拉）'};
+}
+// 透天／土地：先找同路段同類別，不足 3 筆再擴大到同區域同類別
+async function lvrLandLike(p, cat, idx){
+  const a = splitAddr(p.tourAddr || p.address), road = normRoad(a.road);
+  let town = a.dist && idx.towns[a.dist] ? a.dist : (road && Object.keys(idx.towns).find(t => idx.towns[t].includes(road))) || a.dist;
+  if (!town) return {msg: '沒有行政區，查不到行情。請補上地址（例：台中市南屯區…）。'};
+  if (cat === 'house'){
+    const same = road && (idx.towns[town] || []).includes(road) ? (await lvrRoad(town, road)).filter(r => /透天/.test(r[7])).map(r => ({road, r})) : [];
+    const w = lvrSpanPick(same.map(x => x.r), 3);
+    if (w.list.length >= 3) return {rows: w.list.map(r => ({road, r})), label: w.label, scope: `同路段（${road}）透天`, town};
+    const dist = (await lvrFile(town, '_透天')).map(x => ({road: x[0], r: x.slice(1)}));
+    const wd = lvrSpanPick(dist.map(x => x.r), 3), keep = new Set(wd.list);
+    const rows = dist.filter(x => keep.has(x.r)).sort((x, y) => (y.road === road) - (x.road === road) || y.r[0] - x.r[0]);
+    return {rows, label: wd.label, scope: `同區域（${town}）透天${road ? `（${road} 只有 ${w.list.length} 筆，已擴大）` : ''}`, town};
+  }
+  const lands = await lvrFile(town, '_土地'), w = lvrSpanPick(lands, 3);
+  return {rows: w.list.map(r => ({road: '', r})), label: w.label, scope: `同區域（${town}）純土地；實價登錄的土地只有地段地號、沒有路名，無法再縮到同路段`, town};
+}
+function landTable(p, cat, res){
+  const L = res.rows, show = lvrOpen[p.id] ? L : L.slice(0, 8);
+  const lp = L.map(x => landPing(x.r)), units = L.map((x, i) => lp[i] ? x.r[8] / lp[i] : null).filter(v => v);
+  const avg = units.length ? units.reduce((a, b) => a + b, 0) / units.length : null;
+  const mine = num(p.landArea), tag = cat === 'house' ? '<br><small>（含建物價值）</small>' : '';
+  const cells = x => { const r = x.r, pg = landPing(r), u = pg ? r[8] / pg : null;
+    return `<td>${lvrDate(r[0])}</td><td class="l">${esc((x.road || '') + r[1])}${r[18] ? ` <span class="nt" title="${esc(r[18])}">※</span>` : ''}</td><td>${r[8].toLocaleString()}</td><td>${pg ? f2(pg) : '<span class="nt" title="這筆交易沒有完整的土地移轉面積">資料不足</span>'}</td><td>${u ? '<b>' + f2(u) + '</b>' : '<span class="nt">資料不足</span>'}</td>` +
+      (cat === 'house' ? `<td>${f2(r[11])}</td><td>${esc(r[15])}</td><td>${r[13] != null ? r[13] : '—'}</td><td>${r[6] || '—'}</td><td>${r[16] ? esc(r[16]) : '—'}</td>` : `<td>${esc(r[24] || '—')}</td><td class="l">${esc(r[18] || '')}</td>`); };
+  const head = cat === 'house'
+    ? `<th>交易日期</th><th>門牌</th><th>總價(萬)</th><th>土地總坪數</th><th>地坪單價(萬/坪)${tag}</th><th>建物坪數</th><th>格局</th><th>屋齡</th><th>樓高</th><th>車位</th>`
+    : `<th>交易日期</th><th>地段地號</th><th>總價(萬)</th><th>土地總坪數</th><th>地坪單價(萬/坪)</th><th>使用分區</th><th>備註</th>`;
+  return `<p class="sumline">${esc(res.scope)}｜${res.label} ${L.length} 筆，平均地坪單價 <b>${avg ? f2(avg) : '—'}</b> 萬/坪${cat === 'house' ? '（含建物價值）' : ''}${units.length < L.length ? `（${L.length - units.length} 筆土地資料不足，不列入平均）` : ''}${mine ? `｜本物件土地 ${f2(mine)} 坪` : ''}</p>
+    <div class="scroll"><table><thead><tr>${head}</tr></thead><tbody>${show.map(x => `<tr>${cells(x)}</tr>`).join('')}</tbody></table></div>
+    ${L.length > 8 ? `<button class="s" data-lvrmore="${esc(p.id)}" style="margin-top:6px">${lvrOpen[p.id] ? '收合' : `顯示全部 ${L.length} 筆`}</button>` : ''}`;
+}
 function scheduleLvr(){ clearTimeout(lvrTimer); lvrTimer = setTimeout(renderLvr, 400); }
 async function renderLvr(){
   const sec = $('lvrSec'); if (!sec || location.hash.startsWith('#d=')) return;
@@ -1425,9 +1477,17 @@ async function renderLvr(){
   if (!idx){ $('lvrList').innerHTML = '<p class="msg">實價登錄資料還在整理中（每月 2、12、22 日自動更新），稍後再回來看。</p>'; $('lvrNote').textContent = ''; return; }
   const out = [];
   for (const [i, p] of list.entries()){
-    const name = esc(p.community || p.title || p.code || '物件');
+    const cat = lvrCat(p);
+    const pick = `<select data-lvrcat="${esc(p.id)}" aria-label="行情版本" style="width:auto;margin-left:8px;font-size:13px;padding:2px 6px">${Object.entries(LVR_CAT).map(([k, v]) => `<option value="${k}" ${k === cat ? 'selected' : ''}>${v}版</option>`).join('')}</select>`;
+    const name = esc(p.community || p.title || p.code || '物件') + pick;
     const city = splitAddr(p.tourAddr || p.address).city || cityHint();
     if (city && !/(臺|台)中/.test(city)){ out.push(`<div class="blk"><h3>${i + 1}. ${name}</h3><p class="msg">目前只整理臺中市的實價登錄資料。</p></div>`); continue; }
+    if (cat !== 'condo'){
+      const res = await lvrLandLike(p, cat, idx);
+      if (run !== lvrRun) return;
+      out.push(`<div class="blk"><h3>${i + 1}. ${name}</h3>${res.msg ? `<p class="msg">${esc(res.msg)}</p>` : res.rows.length ? landTable(p, cat, res) : `<p class="msg">${esc(res.scope)}：${res.label}查無成交。</p>`}</div>`);
+      continue;
+    }
     const loc = await lvrLocate(p);
     if (run !== lvrRun) return;
     if (!loc){ out.push(`<div class="blk"><h3>${i + 1}. ${name}</h3><p class="msg">沒有路名，查不到行情。請在表格或帶看路線補上地址。</p></div>`); continue; }
@@ -1451,8 +1511,13 @@ async function renderLvr(){
   if (run !== lvrRun) return;
   save();
   $('lvrList').innerHTML = out.join('');
-  $('lvrNote').innerHTML = `資料來源：內政部不動產交易實價查詢服務網 Open Data（政府資料開放授權條款），整理至 ${esc(idx.updated || '')}。只列有建物的交易；單價＝總價÷總坪數（含車位，和實價登錄網站相同）；扣車單價只有申報時有拆出車位價的才算得出來。※ 有特殊交易備註，滑鼠移上去可看內容。社區比對依門牌或樓高、完工年推定，僅供參考。`;
+  $('lvrNote').innerHTML = `資料來源：內政部不動產交易實價查詢服務網 Open Data（政府資料開放授權條款），整理至 ${esc(idx.updated || '')}。社區大樓版只列有建物的交易；單價＝總價÷總坪數（含車位，和實價登錄網站相同）；扣車單價只有申報時有拆出車位價的才算得出來。※ 有特殊交易備註，滑鼠移上去可看內容。社區比對依門牌或樓高、完工年推定，僅供參考。透天／土地版：土地總坪數＝該筆交易土地移轉總面積（㎡）×0.3025，地坪單價＝總價÷土地總坪數；透天的地坪單價含建物價值；土地面積缺漏顯示「資料不足」、不列入平均。`;
 }
+$('lvrSec').addEventListener('change', e => {
+  const c = e.target.closest('[data-lvrcat]'); if (!c) return;
+  const p = props.find(q => q.id === c.dataset.lvrcat); if (!p) return;
+  p.lvrCat = c.value; save(); renderLvr();
+});
 $('lvrSec').addEventListener('click', e => {
   const s = e.target.closest('[data-span]'); if (s){ lvrSpan = s.dataset.span; store.set('pc-lvrSpan', lvrSpan); renderLvr(); return; }
   const m = e.target.closest('[data-lvrmore]'); if (m){ lvrOpen[m.dataset.lvrmore] = !lvrOpen[m.dataset.lvrmore]; renderLvr(); }
