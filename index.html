@@ -238,7 +238,7 @@ button.sec{background:var(--panel);border-color:var(--rule)}
         <button class="act" id="pdfBtn">📄 下載 PDF</button>
         <button class="act" id="mkImg">🖼 產生比較圖</button>
         <button class="act" id="tourBtn">🚗 帶看路線</button>
-        <button class="sec" id="refreshBtn">↻ 更新官網資料</button>
+        <button class="sec" id="refreshBtn" title="跳過暫存，重新到信義官網抓最新資料（物件改價時用）">↻ 更新官網資料</button>
         <button class="sec" id="reBtn">🔄 重新分析</button>
       </div>
       <p class="msg" id="omsg" role="status" style="margin:8px 0 0"></p>
@@ -1100,28 +1100,47 @@ function applyOfficial(p, d){
   if (num(v.lat) && num(v.lng)) { p.lat = num(v.lat); p.lng = num(v.lng); p.manualLoc = true; p.locOfficial = true; }
   p.officialAt = Date.now(); p.officialVer = 3; delete p.officialFail;
 }
-async function fetchOfficial(list){
+// 中繼服務會把讀過的物件存 6 小時，再讀幾乎立即回來；第一次讀新物件要走 Firecrawl，約 10–40 秒。
+// refresh = true 時要求中繼服務跳過存檔、重抓官網（按「更新官網資料」時用）。
+async function fetchOfficial(list, refresh = false){
   if (!FETCH_URL || !list.length) return 0;
   $('refreshBtn').disabled = true; let ok = 0, done = 0;
+  const t0 = Date.now();
+  const tick = () => { if (done < list.length) $('omsg').textContent = `讀取官網資料 ${done}／${list.length}…（已等 ${Math.round((Date.now() - t0) / 1000)} 秒，第一次讀新物件約需 10–40 秒）`; };
+  const timer = setInterval(tick, 1000); tick();
   const one = async p => {
     p._st = '讀取官網中…'; const el = document.querySelector(`[data-st="${CSS.escape(p.id)}"]`); if (el) el.textContent = p._st;
-    const get = async () => { const r = await fetch(FETCH_URL + '?code=' + encodeURIComponent(p.code), {cache: 'no-cache'}); if (!r.ok) throw new Error(r.status); return r.json(); };
+    const get = async () => {
+      const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 60000);
+      try {
+        const r = await fetch(FETCH_URL + '?code=' + encodeURIComponent(p.code) + (refresh ? '&refresh=1' : ''), {cache: 'no-store', signal: ctrl.signal});
+        const d = await r.json().catch(() => null);
+        if (r.status === 404) { const e = new Error('not_found'); e.final = true; throw e; } // 下架或編號錯，不用重試
+        if (!r.ok || !d) throw new Error(r.status);
+        return d;
+      } finally { clearTimeout(to); }
+    };
     try {
-      let d; try { d = await get(); } catch(e){ await new Promise(res => setTimeout(res, 4000)); d = await get(); } // 失敗自動重試一次
+      let d;
+      for (let i = 0; ; i++){ // 失敗最多再試 2 次
+        try { d = await get(); break; } catch(e){ if (e.final || i >= 2) throw e; await new Promise(res => setTimeout(res, 3000)); }
+      }
       applyOfficial(p, d); ok++; p._st = '';
-    } catch(e){ p.officialFail = true; p._st = '官網讀取失敗'; }
-    done++; $('omsg').textContent = `讀取官網資料 ${done}／${list.length}…`;
+    } catch(e){ p.officialFail = true; p._st = e.message === 'not_found' ? '官網查無此物件' : '官網讀取失敗'; }
+    done++; tick();
   };
   const queue = list.slice(); // 一次同時讀 2 間（Firecrawl 同時太多會被擋）
   await Promise.all(Array.from({length: Math.min(2, queue.length)}, async () => { while (queue.length) await one(queue.shift()); }));
+  clearInterval(timer);
   $('refreshBtn').disabled = false; isSample = false; save(); render();
-  $('omsg').textContent = `已更新 ${ok}／${list.length} 筆官網資料。` + (ok < list.length ? '讀不到的可能已下架或編號有誤，請手動補資料。' : '');
+  const sec = Math.round((Date.now() - t0) / 1000);
+  $('omsg').textContent = `已更新 ${ok}／${list.length} 筆官網資料（${sec} 秒）。` + (ok < list.length ? '讀不到的可能已下架或編號有誤，可按「↻ 更新官網資料」再試，或手動補資料。' : '');
   return ok;
 }
 $('refreshBtn').addEventListener('click', async () => {
   const list = props.filter(p => isCode(p.code));
   if (!list.length){ $('refreshBox').hidden = false; $('refreshBox').textContent = '目前沒有帶銷售編號的物件。'; return; }
-  if (FETCH_URL){ $('refreshBox').hidden = true; await fetchOfficial(list); return; }
+  if (FETCH_URL){ $('refreshBox').hidden = true; await fetchOfficial(list, true); return; }
   $('refreshBox').hidden = false;
   $('refreshBox').innerHTML = '<span class="msg">這個網站還沒接上官網資料服務，請點開官網核對總價、屋齡、車位與社區，再直接改表格：</span><br>' +
     list.map(p => `<a href="https://www.sinyi.com.tw/buy/house/${esc(p.code)}" target="_blank" rel="noopener">${esc(p.code)} ${esc(p.title || '')}</a>`).join('');

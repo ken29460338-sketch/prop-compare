@@ -1,0 +1,10 @@
+# Cloudflare Worker：sinyi-proxy（在 Cloudflare 連 GitHub 自動部署，Root directory 設 worker）
+name = "sinyi-proxy"
+main = "sinyi-proxy.js"
+compatibility_date = "2026-11-01"
+workers_dev = true
+keep_vars = true
+
+[[kv_namespaces]]
+binding = "KV"
+id = "f5f70e23830f420e996b75aa78e3ec04"
