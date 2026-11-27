@@ -10,3 +10,11 @@
 
 Settings → Pages → Source 選「Deploy from a branch」，Branch 選 `main`、資料夾 `/ (root)`，存檔後約一分鐘即可在
 `https://<帳號>.github.io/<repo 名稱>/` 打開。
+
+網站同時部署在兩個網址，推到 `main` 後兩邊都會在約一分鐘內自動更新：
+
+- GitHub Pages：https://ken29460338-sketch.github.io/prop-compare/
+- Cloudflare Pages：https://prop-compare.pages.dev/ （公司內網打不開 github.io 時用這個）
+
+官網資料由 `worker/sinyi-proxy.js`（Cloudflare Worker）提供，它只允許上面兩個網址呼叫；
+新增網址時要把網址加進 Worker 開頭的 `A` 清單並重新部署。
