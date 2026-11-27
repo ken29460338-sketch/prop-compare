@@ -1437,11 +1437,12 @@ async function renderLvr(){
     const {hit, how} = lvrMatch(p, rows, loc);
     const {list: L, label} = lvrWindow(hit);
     if (!L.length){ out.push(`<div class="blk"><h3>${i + 1}. ${name}</h3><p class="msg">${hit.length ? `${label}沒有成交，按「全部」看更早的紀錄（共 ${hit.length} 筆）。` : `實價登錄查無這個社區的成交（${esc(how || loc.road)}）。`}</p></div>`); continue; }
-    const units = L.map(r => r[10] || r[9]).filter(v => v), avg = units.length ? units.reduce((a, b) => a + b, 0) / units.length : null;
+    const mean = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
+    const avg = mean(L.map(r => r[9]).filter(v => v)), np = L.map(r => r[10]).filter(v => v), avgNp = np.length >= 2 ? mean(np) : null;
     const prices = L.map(r => r[8]);
     const show = lvrOpen[p.id] ? L : L.slice(0, 8);
     out.push(`<div class="blk"><h3>${i + 1}. ${name}</h3>
-      <p class="sumline">${esc(how)}｜${label} ${L.length} 筆，平均扣車單價 <b>${avg ? f2(avg) : '—'}</b> 萬/坪，總價 ${Math.min(...prices).toLocaleString()}–${Math.max(...prices).toLocaleString()} 萬</p>
+      <p class="sumline">${esc(how)}｜${label} ${L.length} 筆，平均單價 <b>${avg ? f2(avg) : '—'}</b> 萬/坪${avgNp ? `（有拆車位價的 ${np.length} 筆，扣車均價 ${f2(avgNp)}）` : ''}，總價 ${Math.min(...prices).toLocaleString()}–${Math.max(...prices).toLocaleString()} 萬</p>
       <div class="scroll"><table><thead><tr><th>交易日期</th><th>門牌</th><th>樓別/樓高</th><th>總價(萬)</th><th>單價(萬/坪)</th><th>扣車單價</th><th>總坪數</th><th>主建物占比</th><th>格局</th><th>屋齡</th><th>車位</th></tr></thead><tbody>
       ${show.map(r => `<tr><td>${lvrDate(r[0])}</td><td class="l">${esc(loc.road + r[1])}${r[18] ? ` <span class="nt" title="${esc(r[18])}">※</span>` : ''}</td><td>${esc(String(r[5]).replace('層', ''))}/${r[6] || '—'}</td><td>${r[8].toLocaleString()}</td><td>${r[9] != null ? f2(r[9]) : '—'}</td><td>${r[10] != null ? f2(r[10]) : '—'}</td><td>${f2(r[11])}</td><td>${r[12] != null ? r[12] + '%' : '—'}</td><td>${esc(r[15])}</td><td>${r[13] != null ? r[13] : '—'}</td><td>${r[16] ? esc(r[16]) + (r[17] ? ` ${r[17]}萬` : '') : '—'}</td></tr>`).join('')}
       </tbody></table></div>
@@ -1450,7 +1451,7 @@ async function renderLvr(){
   if (run !== lvrRun) return;
   save();
   $('lvrList').innerHTML = out.join('');
-  $('lvrNote').innerHTML = `資料來源：內政部不動產交易實價查詢服務網 Open Data（政府資料開放授權條款），整理至 ${esc(idx.updated || '')}。只列有建物的交易；單價含車位，扣車單價＝（總價−車位價）÷（坪數−車位坪數）。※ 有特殊交易備註，滑鼠移上去可看內容。社區比對依門牌或樓高、完工年推定，僅供參考。`;
+  $('lvrNote').innerHTML = `資料來源：內政部不動產交易實價查詢服務網 Open Data（政府資料開放授權條款），整理至 ${esc(idx.updated || '')}。只列有建物的交易；單價＝總價÷總坪數（含車位，和實價登錄網站相同）；扣車單價只有申報時有拆出車位價的才算得出來。※ 有特殊交易備註，滑鼠移上去可看內容。社區比對依門牌或樓高、完工年推定，僅供參考。`;
 }
 $('lvrSec').addEventListener('click', e => {
   const s = e.target.closest('[data-span]'); if (s){ lvrSpan = s.dataset.span; store.set('pc-lvrSpan', lvrSpan); renderLvr(); return; }
