@@ -590,8 +590,8 @@ $('dlPdf').addEventListener('click', async () => {
     $('omsg').textContent = '產生 PDF 中…';
     const {jsPDF} = window.jspdf; const doc = new jsPDF({orientation:'landscape', unit:'mm', format:'a4'});
     const pw = 297, ph = 210, m = 8;
-    const place = (cv, type) => { const r = Math.min((pw-2*m)/cv.width, (ph-2*m)/cv.height); const w = cv.width*r, h = cv.height*r; doc.addImage(cv.toDataURL(type === 'JPEG' ? 'image/jpeg' : 'image/png', .9), type, (pw-w)/2, m, w, h); };
-    place(lastCanvas, 'PNG');
+    const place = (cv, type) => { const r = Math.min((pw-2*m)/cv.width, (ph-2*m)/cv.height); const w = cv.width*r, h = cv.height*r; doc.addImage(cv.toDataURL(type === 'JPEG' ? 'image/jpeg' : 'image/png', .92), type, (pw-w)/2, m, w, h); };
+    place(lastCanvas, 'JPEG');
     const mp = await drawMapPage();
     if (mp){ doc.addPage('a4', 'landscape'); place(mp, 'JPEG'); }
     saveBlob(doc.output('blob'), fname('pdf'));
