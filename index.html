@@ -115,6 +115,13 @@ button.sec{background:var(--panel);border-color:var(--rule)}
 .legend b{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--brick);color:#fff;font:700 12px "Schibsted Grotesk",sans-serif;flex:none}
 .legend .miss b{background:var(--rule);color:var(--mute)}
 @media(max-width:600px){#map{height:340px}}
+.lgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+.lcard{border:1px solid var(--rule);border-radius:8px;overflow:hidden;background:var(--panel)}
+.lcard a{display:block;background:#fff;aspect-ratio:4/3}
+.lcard img{width:100%;height:100%;object-fit:contain;display:block}
+.lcard div{padding:10px 12px;font-size:14px}
+.lcard b{display:block;font-size:15px;line-height:1.35;margin-bottom:2px}
+.lcard .none{display:grid;place-items:center;height:100%;color:#888;font-size:13px}
 @media(prefers-reduced-motion:reduce){.bar .k i{transition:none}}
 @media(max-width:820px){.top,.low{grid-template-columns:minmax(0,1fr)}.sum{grid-template-columns:repeat(2,minmax(0,1fr))}.sum div:nth-child(2){border:0}}
 @media(max-width:600px){.bar{grid-template-columns:minmax(0,1fr) 5.5em}.bar .k{grid-column:1/-1;grid-row:2}.grid2{grid-template-columns:minmax(0,1fr)}}
@@ -153,6 +160,12 @@ button.sec{background:var(--panel);border-color:var(--rule)}
   <div class="cols" id="cols" role="group" aria-label="顯示欄位"></div>
   <div class="scroll"><table id="tbl"></table></div>
   <p class="msg" id="sample" style="margin:6px 0 0"></p>
+
+  <section class="panel" id="layoutSec" hidden style="margin-top:18px">
+    <h2>格局圖比較</h2>
+    <div class="lgrid" id="lgrid"></div>
+    <p class="msg" style="margin:8px 0 0">格局圖來自信義房屋官網，點圖可開大圖。</p>
+  </section>
 
   <section class="panel" id="mapSec">
     <div class="row" style="justify-content:space-between">
@@ -363,6 +376,7 @@ function render(){
   renderSummary(best); renderBars(best);
   if (typeof renderTour === 'function' && !location.hash.startsWith('#d=')) renderTour();
   if (typeof drawMap === 'function') { drawMap(); scheduleLocate(); }
+  if (typeof renderLayouts === 'function') renderLayouts();
 }
 
 function renderSummary(best){
@@ -400,6 +414,7 @@ $('go').addEventListener('click', () => {
   $('pmsg').className = 'msg';
   $('pmsg').textContent = `已加入 ${added} 筆` + (dup ? `，${dup} 筆重複略過` : '') + '。屋齡、樓層、車位、管理費可直接在表格裡填（點編號可開官網對照）。';
   save(); render();
+  if (FETCH_URL && added) fetchOfficial(list.filter(p => isCode(p.code) && props.includes(p)));
 });
 $('add').addEventListener('click', () => {
   if (isSample){ props = []; isSample = false; }
@@ -628,7 +643,7 @@ $('shImg').addEventListener('click', async () => {
 });
 
 // ---- share link: whole report packed into the URL hash ----
-const KEEP = ['lat','lng','code','title','community','address','price','origPrice','area','mainArea','age','floor','layout','direction','parkType','parkArea','parkPrice','parkEst','mgmtFee','units','elevator','builtDate','parkNo','memo','url'];
+const KEEP = ['layoutImage','lat','lng','code','title','community','address','price','origPrice','area','mainArea','age','floor','layout','direction','parkType','parkArea','parkPrice','parkEst','mgmtFee','units','elevator','builtDate','parkNo','memo','url'];
 const b64u = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 const unb64u = s => Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')), c => c.charCodeAt(0));
 async function pack(obj){
@@ -795,29 +810,49 @@ $('tourBtn').addEventListener('click', () => {
   $('tour').hidden = false; renderTour(); store.set('pc-tourOpen', true);
   $('tour').scrollIntoView({behavior: smooth()});
 });
-// 官網資料：GitHub Pages 沒有後端，設定 FETCH_URL（例如 Cloudflare Worker）後就能自動更新
+// 官網資料：透過 Cloudflare Worker 讀信義官網（worker/sinyi-proxy.js），還沒設定時 FETCH_URL 留空
 const FETCH_URL = '';
+function applyOfficial(p, d){
+  if (num(d.price)) { p.price = num(d.price); if (num(d.origPrice)) p.origPrice = num(d.origPrice); }
+  for (const k of ['area','mainArea','age','parkArea','mgmtFee']) if (num(d[k]) != null) p[k] = num(d[k]);
+  for (const k of ['floor','layout','direction','community','parkType','layoutImage','photo']) if (d[k]) p[k] = String(d[k]);
+  if (d.address && (!p.address || String(d.address).includes(p.address))) p.address = d.address;
+  if (!p.title && d.title) p.title = d.title;
+  if (num(d.lat) && num(d.lng)) { p.lat = num(d.lat); p.lng = num(d.lng); p.manualLoc = true; p.locOfficial = true; }
+  p.officialAt = Date.now();
+}
+async function fetchOfficial(list){
+  if (!FETCH_URL || !list.length) return 0;
+  $('refreshBtn').disabled = true; let ok = 0;
+  for (const [i, p] of list.entries()){
+    $('omsg').textContent = `讀取官網資料 ${i+1}／${list.length}…`;
+    try {
+      const r = await fetch(FETCH_URL + '?code=' + encodeURIComponent(p.code));
+      if (!r.ok) throw new Error(r.status);
+      applyOfficial(p, await r.json()); ok++;
+    } catch(e){}
+  }
+  $('refreshBtn').disabled = false; isSample = false; save(); render();
+  $('omsg').textContent = `已更新 ${ok}／${list.length} 筆官網資料。` + (ok < list.length ? '讀不到的可能已下架或編號有誤。' : '');
+  return ok;
+}
 $('refreshBtn').addEventListener('click', async () => {
   const list = props.filter(p => isCode(p.code));
   if (!list.length){ $('refreshBox').hidden = false; $('refreshBox').textContent = '目前沒有帶銷售編號的物件。'; return; }
-  if (FETCH_URL){
-    $('refreshBtn').disabled = true; let ok = 0;
-    for (const p of list){
-      try {
-        const r = await fetch(FETCH_URL + '?code=' + encodeURIComponent(p.code)); const d = await r.json();
-        if (num(d.price)) { if (!num(p.origPrice)) p.origPrice = num(p.price) || num(d.price); p.price = num(d.price); }
-        for (const k of ['area','mainArea','age','parkArea','mgmtFee']) if (num(d[k]) != null) p[k] = num(d[k]);
-        for (const k of ['floor','layout','direction','units','elevator','builtDate','community','parkType']) if (d[k]) p[k] = String(d[k]);
-        ok++;
-      } catch(e){}
-    }
-    $('refreshBtn').disabled = false; isSample = false; save(); render();
-    $('omsg').textContent = `已更新 ${ok}／${list.length} 筆官網資料。`; return;
-  }
+  if (FETCH_URL){ $('refreshBox').hidden = true; await fetchOfficial(list); return; }
   $('refreshBox').hidden = false;
   $('refreshBox').innerHTML = '<span class="msg">這個網站還沒接上官網資料服務，請點開官網核對總價、屋齡、車位與社區，再直接改表格：</span><br>' +
     list.map(p => `<a href="https://www.sinyi.com.tw/buy/house/${esc(p.code)}" target="_blank" rel="noopener">${esc(p.code)} ${esc(p.title || '')}</a>`).join('');
 });
+function renderLayouts(){
+  const list = sorted(); const any = list.some(p => p.layoutImage);
+  $('layoutSec').hidden = !any; if (!any) return;
+  const safe = u => /^https:\/\/res\.sinyi\.com\.tw\//.test(u || '');
+  $('lgrid').innerHTML = list.map((p, i) => `<div class="lcard">
+    ${safe(p.layoutImage) ? `<a href="${esc(p.layoutImage)}" target="_blank" rel="noopener"><img src="${esc(p.layoutImage)}" alt="${esc((p.title||p.code)+' 格局圖')}" loading="lazy"></a>` : '<a><span class="none">沒有格局圖</span></a>'}
+    <div><b>${i+1}. ${esc(p.title || p.code || '未命名')}</b><span class="msg">${esc([p.layout, num(p.area) ? f2(num(p.area)) + ' 坪' : '', num(p.price) ? fN(num(p.price)) + ' 萬' : ''].filter(Boolean).join('・'))}</span></div>
+  </div>`).join('');
+}
 $('reBtn').addEventListener('click', () => {
   const last = store.get('pc-lastPaste', '');
   $('paste').value = last; $('paste').dispatchEvent(new Event('input'));
