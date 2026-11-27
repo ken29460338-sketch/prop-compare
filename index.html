@@ -1474,15 +1474,22 @@ function landTable(p, cat, res){
     <div class="scroll"><table><thead><tr>${head}</tr></thead><tbody>${show.map(x => `<tr>${cells(x)}</tr>`).join('')}</tbody></table></div>
     ${L.length > 8 ? `<button class="s" data-lvrmore="${esc(p.id)}" style="margin-top:6px">${lvrOpen[p.id] ? '收合' : `顯示全部 ${L.length} 筆`}</button>` : ''}`;
 }
-// ---- 物件周遭 N 公尺：開放資料沒有座標，先找附近道路（OpenStreetMap），每條路挑幾個門牌請 Google 定位，其餘依門牌號碼內插推估位置 ----
+// ---- 物件周遭 N 公尺：開放資料沒有座標，先找附近道路（Google 反查），每條路挑幾個門牌請 Google 定位，其餘依門牌號碼內插推估位置 ----
 const ovCache = {};
+// 附近道路：在物件周圍取樣幾個點，請 Google 反查每個點在哪條路上（結果會存起來，不重複計費）
 async function nearRoads(lat, lng, R){
   const k = `${(+lat).toFixed(4)},${(+lng).toFixed(4)},${R}`; if (ovCache[k]) return ovCache[k];
-  const q = `[out:json][timeout:25];way(around:${R + 60},${lat},${lng})[highway][name];out tags;`;
-  const r = await fetch('https://overpass-api.de/api/interpreter', {method: 'POST', headers: {'content-type': 'application/x-www-form-urlencoded'}, body: 'data=' + encodeURIComponent(q)});
-  if (!r.ok) throw new Error('overpass');
-  const j = await r.json();
-  return ovCache[k] = [...new Set(j.elements.map(e => normRoad(e.tags.name)).filter(n => /(路|街|大道)([一二三四五六七八九十]+段)?$/.test(n)))];
+  const pts = [[0, 0]], dLat = 1 / 111320, dLng = 1 / (111320 * Math.cos(lat * Math.PI / 180));
+  for (const f of R > 350 ? [0.5, 0.95] : [0.6, 1]) for (let a = 0; a < 8; a++) pts.push([Math.cos(a * Math.PI / 4) * R * f, Math.sin(a * Math.PI / 4) * R * f]);
+  let ok = 0;
+  const res = await Promise.all(pts.map(async ([dy, dx]) => {
+    try {
+      const r = await fetch(`${FETCH_URL}geo?ll=${(lat + dy * dLat).toFixed(5)},${(lng + dx * dLng).toFixed(5)}`, {cache: 'no-store'});
+      const j = await r.json(); if (r.ok) ok++; return (j && j.roads) || [];
+    } catch(e){ return []; }
+  }));
+  if (!ok) throw new Error('reverse');
+  return ovCache[k] = [...new Set(res.flat().map(normRoad).filter(n => /(路|街|大道)([一二三四五六七八九十]+段)?$/.test(n)))];
 }
 const hav = (a, b, c, d) => { const t = x => x * Math.PI / 180, h = Math.sin(t(c - a) / 2) ** 2 + Math.cos(t(a)) * Math.cos(t(c)) * Math.sin(t(d - b) / 2) ** 2; return 12742000 * Math.asin(Math.sqrt(h)); };
 // 這筆成交在主要道路上的門牌號碼：巷內的用巷號近似；舊資料的門牌區間取中間
@@ -1490,7 +1497,7 @@ const mainNo = r => { if (r[2]) { const m = String(r[2]).match(/^(\d+)巷/); ret
 async function lvrRadius(p, cat, idx, R, run){
   if (cat === 'land') return {msg: '純土地的實價登錄只有地段地號、沒有門牌，算不出距離；請改用「同社區／同路段」範圍（土地版以同區域、同使用分區比較）。'};
   if (p.lat == null || p.lng == null) return {msg: '這間物件還沒定位，請先在地圖或帶看路線確認位置。'};
-  let names; try { names = await nearRoads(p.lat, p.lng, R); } catch(e){ return {msg: '附近道路資料（OpenStreetMap）暫時讀不到，請稍後再試。'}; }
+  let names; try { names = await nearRoads(p.lat, p.lng, R); } catch(e){ return {msg: '附近道路暫時查不到（Google 定位服務沒有回應或已達今日上限），請稍後再試。'}; }
   const typeOk = cat === 'house' ? (t => /透天/.test(t)) : (t => /大樓|華廈|公寓|套房/.test(t));
   const now = rocNow(), cut = lvrSpan === 'all' ? 0 : now - (/^\d+$/.test(lvrSpan) ? +lvrSpan : 6) * 10000;
   let budget = 260; // 每間物件最多請 Google 定位幾次（查過的會存起來，不重複計費）
@@ -1588,7 +1595,7 @@ async function renderLvr(){
   if (run !== lvrRun) return;
   save();
   $('lvrList').innerHTML = out.join('');
-  $('lvrNote').innerHTML = `資料來源：內政部不動產交易實價查詢服務網 Open Data（政府資料開放授權條款），整理至 ${esc(idx.updated || '')}。社區大樓版只列有建物的交易；單價＝總價÷總坪數（含車位，和實價登錄網站相同）；扣車單價只有申報時有拆出車位價的才算得出來。※ 有特殊交易備註，滑鼠移上去可看內容。社區比對依門牌或樓高、完工年推定，僅供參考。透天／土地版：土地總坪數＝該筆交易土地移轉總面積（㎡）×0.3025，地坪單價＝總價÷土地總坪數；透天的地坪單價含建物價值；土地面積缺漏顯示「資料不足」、不列入平均。周遭 300／500 公尺：附近道路取自 OpenStreetMap，成交位置依門牌推估（每條路挑幾個門牌用 Google 定位、其餘依號碼內插），約有 50–100 公尺誤差。`;
+  $('lvrNote').innerHTML = `資料來源：內政部不動產交易實價查詢服務網 Open Data（政府資料開放授權條款），整理至 ${esc(idx.updated || '')}。社區大樓版只列有建物的交易；單價＝總價÷總坪數（含車位，和實價登錄網站相同）；扣車單價只有申報時有拆出車位價的才算得出來。※ 有特殊交易備註，滑鼠移上去可看內容。社區比對依門牌或樓高、完工年推定，僅供參考。透天／土地版：土地總坪數＝該筆交易土地移轉總面積（㎡）×0.3025，地坪單價＝總價÷土地總坪數；透天的地坪單價含建物價值；土地面積缺漏顯示「資料不足」、不列入平均。周遭 300／500 公尺：附近道路由 Google 反查取得，成交位置依門牌推估（每條路挑幾個門牌用 Google 定位、其餘依號碼內插），約有 50–100 公尺誤差。`;
 }
 $('lvrSec').addEventListener('change', e => {
   const c = e.target.closest('[data-lvrcat]'); if (!c) return;
