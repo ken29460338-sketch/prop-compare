@@ -1,0 +1,40 @@
+# 每月 2、12、22 日（實價登錄 1、11、21 日更新後）下載內政部 Open Data，整理成 data/lvr/ 給社區行情使用
+name: 更新實價登錄資料
+
+on:
+  schedule:
+    - cron: '17 3 2,12,22 * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['tools/build_lvr.py', '.github/workflows/lvr.yml']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lvr
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 下載並整理（臺中市）
+        env:
+          CITIES: B
+        run: python3 tools/build_lvr.py
+      - name: 有變動就提交
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/lvr
+          if git diff --cached --quiet; then echo "沒有新資料"; exit 0; fi
+          git commit -q -m "更新實價登錄資料 $(date -u +%Y-%m-%d)"
+          git pull --rebase -q origin main
+          git push -q origin HEAD:main
