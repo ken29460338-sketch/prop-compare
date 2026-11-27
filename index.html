@@ -132,7 +132,7 @@ button.sec{background:var(--panel);border-color:var(--rule)}
 #tbl .rowh{position:sticky;left:0;z-index:1;min-width:190px;max-width:220px;font-weight:400;color:#3f3f38;white-space:nowrap}
 #tbl tbody .rowh{display:table-cell}
 #tbl .rowh .ic{width:22px;height:22px;vertical-align:-5px;margin-right:10px;fill:none;stroke:#8a9a7c;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
-#tbl thead .rowh{z-index:2}
+#tbl thead .rowh{z-index:2;color:#fff;font-weight:500}
 #tbl td{min-width:230px;cursor:pointer}
 #tbl td:hover{background:#f7f3ea}
 #tbl .mn{display:block}
@@ -624,6 +624,12 @@ function drawImage(){
     const lines = wrap(ctx, name, c.w - 40, 2);
     lines.forEach((ln, j) => ctx.fillText(ln, c.x + c.w / 2, TOP + (lines.length > 1 ? 32 + j * 28 : 46)));
   });
+  const bc = cols.find(c => c.p && c.p.id === best);
+  if (bc){ // 扣車單價最低的那間：卡片上緣掛一個小標籤
+    ctx.font = `700 16px ${FONT}`; const lt = '扣車單價最低', lw = ctx.measureText(lt).width + 28;
+    shadow(); ctx.fillStyle = '#b49a6c'; rr(ctx, bc.x + bc.w / 2 - lw / 2, TOP - 15, lw, 30, 15); ctx.fill(); noShadow();
+    ctx.fillStyle = '#fff'; ctx.fillText(lt, bc.x + bc.w / 2, TOP + 6);
+  }
   ctx.textAlign = 'left';
   // 每一列
   let y = TOP + HH;
@@ -647,7 +653,6 @@ function drawImage(){
           ctx.fillText(r.sub(p), c.x + c.w / 2, y + 84);
         }
         ctx.textAlign = 'left';
-        if (p.id === best && c1.unit){ ctx.fillStyle = SAGE; rr(ctx, c.x + c.w - 98, y + 10, 84, 26, 13); ctx.fill(); ctx.fillStyle = '#fff'; ctx.font = `700 14px ${FONT}`; ctx.textAlign = 'center'; ctx.fillText('扣車最低', c.x + c.w - 56, y + 28); ctx.textAlign = 'left'; }
         return;
       }
       const t = r.show(p), sub = r.sub ? r.sub(p) : '';
