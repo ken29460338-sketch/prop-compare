@@ -255,6 +255,8 @@ button.sec{background:var(--panel);border-color:var(--rule)}
     <div class="row" style="margin-top:10px">
       <div><label class="lab" for="tDate">帶看日期</label><input id="tDate" type="date" style="width:170px"></div>
       <div style="flex:1 1 220px"><label class="lab" for="tMeet">集合地點（選填）</label><input id="tMeet" placeholder="例：信義房屋文心店門口"></div>
+      <div><label class="lab" for="tTraffic">路況（車程估算）</label><select id="tTraffic" style="width:150px" title="道路資料算出的是一路順暢的時間，這裡依路況加上紅綠燈與車流，讓時間接近 Google 地圖">
+        <option value="off">順暢（夜間）</option><option value="normal">一般（白天）</option><option value="peak">尖峰（上下班）</option></select></div>
     </div>
     <div class="tgrid">
       <ol class="tlist" id="tlist"></ol>
@@ -911,6 +913,11 @@ let routeInfo = null, routeTimer = null;
 const routeCache = {};
 const tourStops = () => tourList().filter(p => !p.tourOff && p.lat != null && p.lng != null);
 const stopsKey = st => st.map(p => `${(+p.lat).toFixed(5)},${(+p.lng).toFixed(5)}`).join(';');
+// OSRM 只依道路速限算，沒算紅綠燈和車流，實測比 Google 地圖短約三到四成（台中 4 段路線對照：夜間約 1.4 倍）。
+// 依路況乘上倍數，讓車程接近 Google 地圖；距離不用調整。
+const TRAFFIC = {off: 1.4, normal: 1.6, peak: 2.0};
+const trafficK = () => TRAFFIC[$('tTraffic').value] || TRAFFIC.normal;
+function applyTraffic(ri){ if (!ri) return; const k = trafficK(); ri.legs.forEach(l => { l.dur = l.raw * k; }); ri.total = ri.legs.reduce((a, l) => a + l.dur, 0); }
 const fmtDur = sec => { const m = Math.max(1, Math.round(sec / 60)); return m >= 60 ? `${Math.floor(m / 60)}小時${m % 60 ? (m % 60) + '分鐘' : ''}` : `${m}分鐘`; };
 const fmtDist = m => m >= 1000 ? `${(m / 1000).toFixed(1)}公里` : `${Math.round(m)}公尺`;
 function legLabels(){ // 每段車程標籤的位置與文字（貼在路線上、兩站中間）
@@ -952,13 +959,14 @@ async function calcRoute(){
       const j = await r.json();
       if (j.code !== 'Ok' || !j.routes || !j.routes[0]) throw new Error(j.code || 'route');
       const rt = j.routes[0];
-      routeInfo = routeCache[key] = {key, ids: st.map(p => p.id), legs: rt.legs.map(l => ({dur: l.duration, dist: l.distance})), total: rt.duration, geom: rt.geometry.coordinates.map(([lng, lat]) => [lat, lng])};
+      routeInfo = routeCache[key] = {key, ids: st.map(p => p.id), legs: rt.legs.map(l => ({raw: l.duration, dur: l.duration, dist: l.distance})), total: rt.duration, geom: rt.geometry.coordinates.map(([lng, lat]) => [lat, lng])};
     } catch(e){
       routeInfo = null;
       for (const el of document.querySelectorAll('#tlist .leg')) if (el.textContent) el.textContent = '↓ 車程暫時算不出來，稍後再試';
       return;
     }
   }
+  applyTraffic(routeInfo);
   if (key !== stopsKey(tourStops())) return; // 計算期間順序又被改了
   showLegs(); buildTourText(); if (typeof drawMap === 'function') drawMap();
 }
@@ -985,7 +993,7 @@ function buildTourText(){
     if (lg && legFrom(p) && routeInfo.ids[routeInfo.ids.indexOf(p.id) + 1] === list[i + 1].id) L.push(`↓ 開車約 ${fmtDur(lg.dur)}（${fmtDist(lg.dist)}）`);
     L.push('');
   });
-  if (routeInfo && routeInfo.key === stopsKey(tourStops()) && routeInfo.ids.length === list.length) L.push(`預估總車程約 ${fmtDur(routeInfo.total)}（不含塞車與停車時間）`, '');
+  if (routeInfo && routeInfo.key === stopsKey(tourStops()) && routeInfo.ids.length === list.length) L.push(`預估總車程約 ${fmtDur(routeInfo.total)}（依${$('tTraffic').selectedOptions[0].text.replace(/（.*）/, '')}路況估算，不含停車時間）`, '');
   const stops = (meet ? [meet] : []).concat(list.map(tQuery).filter(Boolean));
   let route = '';
   if (stops.length >= 2){
@@ -1046,6 +1054,11 @@ $('tlist').addEventListener('keydown', e => {
   const h = e.target.closest('.hdl'); if (!h || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
   e.preventDefault(); const b = h.closest('.ti').querySelector(`[data-mv="${e.key === 'ArrowUp' ? -1 : 1}"]`); b.click();
   const id = h.closest('.ti').dataset.id; const nh = document.querySelector(`.ti[data-id="${CSS.escape(id)}"] .hdl`); if (nh) nh.focus();
+});
+$('tTraffic').value = store.get('pc-tTraffic', 'normal');
+$('tTraffic').addEventListener('change', () => {
+  store.set('pc-tTraffic', $('tTraffic').value); applyTraffic(routeInfo);
+  showLegs(); buildTourText(); if (typeof drawMap === 'function') drawMap();
 });
 ['tDate','tMeet'].forEach(id => $(id).addEventListener('input', () => { store.set('pc-'+id, $(id).value); buildTourText(); }));
 ['client','agent','phone','store'].forEach(id => $(id).addEventListener('input', buildTourText));
@@ -1240,7 +1253,7 @@ function drawMap(){
   const miss = items.filter(({p}) => p.lat == null).length;
   if (!locating) $('mapMsg').textContent = !items.length ? '加入物件後會自動標在地圖上。'
     : miss ? `${miss} 間找不到位置，請在表格或帶看路線補上社區名稱或詳細地址。`
-    : tour ? (roadOk ? `編號依「帶看路線」的順序，紅線為開車路線，預估總車程約 ${fmtDur(routeInfo.total)}（不含塞車）。` : '編號依「帶看路線」的順序，虛線為帶看動線。') : '';
+    : tour ? (roadOk ? `編號依「帶看路線」的順序，紅線為開車路線，預估總車程約 ${fmtDur(routeInfo.total)}（依路況估算）。` : '編號依「帶看路線」的順序，虛線為帶看動線。') : '';
 }
 async function locateAll(force){
   if (locating) return; locating = true; $('locBtn').disabled = true;
