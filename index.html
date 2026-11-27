@@ -119,6 +119,17 @@ button.sec{background:var(--panel);border-color:var(--rule)}
 .legend b{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--brick);color:#fff;font:700 12px "Schibsted Grotesk",sans-serif;flex:none}
 .legend .miss b{background:var(--rule);color:var(--mute)}
 @media(max-width:600px){#map{height:340px}}
+.lvr .blk{border-top:1px solid var(--line,#e5e2dc);padding:12px 0 6px}
+.lvr .blk:first-of-type{border-top:0}
+.lvr h3{font-size:16px;margin:0 0 4px}
+.lvr .sumline{font-size:14px;color:#555;margin:0 0 8px}
+.lvr table{border-collapse:collapse;width:100%;font-size:14px;min-width:760px}
+.lvr th,.lvr td{border-bottom:1px solid #eee;padding:6px 8px;text-align:center;white-space:nowrap}
+.lvr th{background:#f4f2ee;font-weight:600;font-size:13px}
+.lvr td.l{text-align:left}
+.lvr .span button{margin-right:6px}
+.lvr .span button.on{background:#7d8f6e;color:#fff;border-color:#7d8f6e}
+.lvr .nt{color:#b54708;cursor:help}
 .lgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
 .lcard{border:1px solid var(--rule);border-radius:8px;overflow:hidden;background:var(--panel)}
 .lcard a{display:block;background:#fff;aspect-ratio:4/3}
@@ -206,6 +217,17 @@ button.sec{background:var(--panel);border-color:var(--rule)}
     <h2>格局圖比較</h2>
     <div class="lgrid" id="lgrid"></div>
     <p class="msg" style="margin:8px 0 0">格局圖來自信義房屋官網，點圖可開大圖。</p>
+  </section>
+
+  <section class="panel lvr" id="lvrSec" hidden style="margin-top:18px">
+    <div class="row" style="justify-content:space-between">
+      <h2 style="margin:0">社區行情（實價登錄）</h2>
+      <div class="span" role="group" aria-label="成交期間">
+        <button class="s" data-span="auto">自動</button><button class="s" data-span="3">近 3 年</button><button class="s" data-span="6">近 6 年</button><button class="s" data-span="all">全部（101 年起）</button>
+      </div>
+    </div>
+    <div id="lvrList"></div>
+    <p class="msg" id="lvrNote" style="margin:8px 0 0"></p>
   </section>
 
   <section class="panel" id="mapSec">
@@ -465,6 +487,7 @@ function render(){
   if (typeof renderTour === 'function' && !location.hash.startsWith('#d=')) renderTour();
   if (typeof drawMap === 'function') { drawMap(); scheduleLocate(); }
   if (typeof renderLayouts === 'function') renderLayouts();
+  if (typeof scheduleLvr === 'function') scheduleLvr();
 }
 
 function renderSummary(best){
@@ -1327,6 +1350,112 @@ $('locBtn').addEventListener('click', () => {
 });
 $('tbl').addEventListener('change', e => { const i = e.target.closest('input[data-k]'); if (!i || !['address','community'].includes(i.dataset.k)) return; const p = props.find(q => q.id === i.dataset.id); if (p){ relocateManual(p); save(); drawMap(); locateAll(false); } });
 $('tlist').addEventListener('change', e => { const i = e.target.closest('input[data-t=tourAddr]'); if (!i) return; const p = props.find(q => q.id === i.closest('.ti').dataset.id); if (p){ relocateManual(p); save(); drawMap(); locateAll(false); } });
+
+// ---- 社區行情：內政部實價登錄 Open Data（GitHub 每月 2、12、22 日自動整理到 data/lvr/，目前只有臺中市）----
+// 比對方式：先用社區名稱查出門牌號碼（Google 地址定位），抓同路段、同門牌的成交；
+// 查不到門牌時，改抓同路段、總樓層相同、建築完成年相差 1 年內的成交（標示「推定」）。
+const LVR_BASE = 'data/lvr/B/';
+let lvrIdx, lvrTimer = null, lvrSpan = store.get('pc-lvrSpan', 'auto'), lvrRun = 0;
+const lvrRoadCache = {}, lvrOpen = {};
+async function lvrIndex(){
+  if (lvrIdx === undefined) lvrIdx = await fetch(LVR_BASE + 'index.json', {cache: 'no-cache'}).then(r => r.ok ? r.json() : null).catch(() => null);
+  return lvrIdx;
+}
+async function lvrRoad(town, road){
+  const k = town + '/' + road;
+  if (!(k in lvrRoadCache)) lvrRoadCache[k] = await fetch(LVR_BASE + encodeURIComponent(town) + '/' + encodeURIComponent(road) + '.json').then(r => r.ok ? r.json() : []).catch(() => []);
+  return lvrRoadCache[k];
+}
+const rocNow = () => { const d = new Date(); return (d.getFullYear() - 1911) * 10000 + (d.getMonth() + 1) * 100 + d.getDate(); };
+const lvrDate = v => { const s = String(v); return s.length >= 7 ? `${s.slice(0, -4)}/${s.slice(-4, -2)}/${s.slice(-2)}` : s; };
+const normRoad = r => String(r || '').replace(/台/g, '臺');
+// 門牌號碼（含巷）：「582」「30巷5」→ {lane:'30巷', n:5}
+function lvrNo(no){ const m = String(no || '').match(/^(?:(\d+巷)(?:(\d+弄))?)?(\d+)/); return m ? {lane: (m[1] || '') + (m[2] || ''), n: +m[3]} : null; }
+// 找出這間物件的社區門牌：已填詳細地址就用它，否則用社區名稱請 Google 查
+async function lvrLocate(p){
+  const addr = String(p.tourAddr || p.address || '').trim(), c = String(p.community || '').trim();
+  const a = splitAddr(addr), key = addr + '|' + c;
+  if (p.lvrKey === key && p.lvrRoad) return {town: p.lvrTown, road: p.lvrRoad, no: p.lvrNoS};
+  let town = a.dist, road = a.road, no = a.no;
+  if (!no && FETCH_URL){
+    const qs = [];
+    if (p.geoAddr) qs.push(null);
+    if (c) qs.push(`${a.city || cityHint()}${a.dist || ''}${c}`);
+    for (const q of qs){
+      let hit = null;
+      if (q === null) hit = [0, 0, p.geoAddr]; else { try { hit = await geocodeG(q); } catch(e){ hit = null; } }
+      const g = hit && splitAddr(String(hit[2]).replace(/^\d+/, '').replace(/([區鄉鎮])[^路街道\d]{1,4}里(?![路街])/, '$1'));
+      if (g && g.road && g.no && (!road || normRoad(g.road) === normRoad(road))){ town = g.dist || town; road = g.road; no = g.no; break; }
+    }
+  }
+  if (!road) return null;
+  Object.assign(p, {lvrKey: key, lvrTown: town, lvrRoad: normRoad(road), lvrNoS: no || ''});
+  return {town, road: normRoad(road), no: no || ''};
+}
+function lvrMatch(p, rows, loc){
+  const total = (String(p.floor || '').match(/\/\s*(\d+)/) || [])[1], floors = total ? +total : null;
+  const built = num(p.age) != null ? Math.round((new Date().getFullYear() - 1911) - num(p.age)) : null;
+  const no = lvrNo(loc.no);
+  let hit = [], how = '';
+  if (no){
+    hit = rows.filter(r => (r[2] || '') === no.lane && r[3] != null && r[3] <= no.n && no.n <= r[4] && (r[3] === r[4] || !floors || !r[6] || r[6] === floors));
+    how = `${loc.road}${no.lane}${no.n}號`;
+  }
+  if (!hit.length && floors && built != null){
+    hit = rows.filter(r => r[6] === floors && r[14] != null && Math.abs(r[14] - built) <= 1 && /大樓|華廈/.test(r[7]));
+    how = `${loc.road}・${floors} 層樓・約民國 ${built} 年完工（推定同社區）`;
+  }
+  return {hit, how};
+}
+function lvrWindow(hit){
+  const now = rocNow(), cut = y => now - y * 10000;
+  if (lvrSpan === 'all') return {list: hit, label: '全部'};
+  if (lvrSpan === '3' || lvrSpan === '6') return {list: hit.filter(r => r[0] >= cut(+lvrSpan)), label: `近 ${lvrSpan} 年`};
+  for (const y of [3, 6]){ const l = hit.filter(r => r[0] >= cut(y)); if (l.length >= 3) return {list: l, label: `近 ${y} 年`}; }
+  return {list: hit, label: '全部（近年成交太少，已往前拉）'};
+}
+function scheduleLvr(){ clearTimeout(lvrTimer); lvrTimer = setTimeout(renderLvr, 400); }
+async function renderLvr(){
+  const sec = $('lvrSec'); if (!sec || location.hash.startsWith('#d=')) return;
+  const list = sorted();
+  if (!list.length || isSample){ sec.hidden = true; return; }
+  sec.hidden = false;
+  for (const b of sec.querySelectorAll('[data-span]')) b.classList.toggle('on', b.dataset.span === lvrSpan);
+  const run = ++lvrRun, idx = await lvrIndex();
+  if (!idx){ $('lvrList').innerHTML = '<p class="msg">實價登錄資料還在整理中（每月 2、12、22 日自動更新），稍後再回來看。</p>'; $('lvrNote').textContent = ''; return; }
+  const out = [];
+  for (const [i, p] of list.entries()){
+    const name = esc(p.community || p.title || p.code || '物件');
+    const city = splitAddr(p.tourAddr || p.address).city || cityHint();
+    if (city && !/(臺|台)中/.test(city)){ out.push(`<div class="blk"><h3>${i + 1}. ${name}</h3><p class="msg">目前只整理臺中市的實價登錄資料。</p></div>`); continue; }
+    const loc = await lvrLocate(p);
+    if (run !== lvrRun) return;
+    if (!loc){ out.push(`<div class="blk"><h3>${i + 1}. ${name}</h3><p class="msg">沒有路名，查不到行情。請在表格或帶看路線補上地址。</p></div>`); continue; }
+    const town = loc.town && (idx.towns[loc.town] || []).includes(loc.road) ? loc.town : Object.keys(idx.towns).find(t => idx.towns[t].includes(loc.road));
+    const rows = town ? await lvrRoad(town, loc.road) : [];
+    if (run !== lvrRun) return;
+    const {hit, how} = lvrMatch(p, rows, loc);
+    const {list: L, label} = lvrWindow(hit);
+    if (!L.length){ out.push(`<div class="blk"><h3>${i + 1}. ${name}</h3><p class="msg">${hit.length ? `${label}沒有成交，按「全部」看更早的紀錄（共 ${hit.length} 筆）。` : `實價登錄查無這個社區的成交（${esc(how || loc.road)}）。`}</p></div>`); continue; }
+    const units = L.map(r => r[10] || r[9]).filter(v => v), avg = units.length ? units.reduce((a, b) => a + b, 0) / units.length : null;
+    const prices = L.map(r => r[8]);
+    const show = lvrOpen[p.id] ? L : L.slice(0, 8);
+    out.push(`<div class="blk"><h3>${i + 1}. ${name}</h3>
+      <p class="sumline">${esc(how)}｜${label} ${L.length} 筆，平均扣車單價 <b>${avg ? f2(avg) : '—'}</b> 萬/坪，總價 ${Math.min(...prices).toLocaleString()}–${Math.max(...prices).toLocaleString()} 萬</p>
+      <div class="scroll"><table><thead><tr><th>交易日期</th><th>門牌</th><th>樓別/樓高</th><th>總價(萬)</th><th>單價(萬/坪)</th><th>扣車單價</th><th>總坪數</th><th>主建物占比</th><th>格局</th><th>屋齡</th><th>車位</th></tr></thead><tbody>
+      ${show.map(r => `<tr><td>${lvrDate(r[0])}</td><td class="l">${esc(loc.road + r[1])}${r[18] ? ` <span class="nt" title="${esc(r[18])}">※</span>` : ''}</td><td>${esc(String(r[5]).replace('層', ''))}/${r[6] || '—'}</td><td>${r[8].toLocaleString()}</td><td>${r[9] != null ? f2(r[9]) : '—'}</td><td>${r[10] != null ? f2(r[10]) : '—'}</td><td>${f2(r[11])}</td><td>${r[12] != null ? r[12] + '%' : '—'}</td><td>${esc(r[15])}</td><td>${r[13] != null ? r[13] : '—'}</td><td>${r[16] ? esc(r[16]) + (r[17] ? ` ${r[17]}萬` : '') : '—'}</td></tr>`).join('')}
+      </tbody></table></div>
+      ${L.length > 8 ? `<button class="s" data-lvrmore="${esc(p.id)}" style="margin-top:6px">${lvrOpen[p.id] ? '收合' : `顯示全部 ${L.length} 筆`}</button>` : ''}</div>`);
+  }
+  if (run !== lvrRun) return;
+  save();
+  $('lvrList').innerHTML = out.join('');
+  $('lvrNote').innerHTML = `資料來源：內政部不動產交易實價查詢服務網 Open Data（政府資料開放授權條款），整理至 ${esc(idx.updated || '')}。只列有建物的交易；單價含車位，扣車單價＝（總價−車位價）÷（坪數−車位坪數）。※ 有特殊交易備註，滑鼠移上去可看內容。社區比對依門牌或樓高、完工年推定，僅供參考。`;
+}
+$('lvrSec').addEventListener('click', e => {
+  const s = e.target.closest('[data-span]'); if (s){ lvrSpan = s.dataset.span; store.set('pc-lvrSpan', lvrSpan); renderLvr(); return; }
+  const m = e.target.closest('[data-lvrmore]'); if (m){ lvrOpen[m.dataset.lvrmore] = !lvrOpen[m.dataset.lvrmore]; renderLvr(); }
+});
 
 async function boot(){
   const m = location.hash.match(/^#d=(.+)$/);
