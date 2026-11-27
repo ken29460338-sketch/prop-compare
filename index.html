@@ -99,6 +99,8 @@ a{color:var(--brick)}
 .ti .side input[type=checkbox]{width:auto;margin:0}
 .mv{display:flex;gap:4px}
 .mv button{min-height:32px;width:32px;padding:0}
+#tlist .leg{font-size:13px;color:var(--brick);margin-top:6px;font-weight:500}
+#tlist .leg:empty{display:none}
 #tourText{min-height:320px;font-size:15px;background:color-mix(in srgb,var(--bg) 40%,var(--panel))}
 @media(max-width:820px){.tgrid{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:600px){.ti{grid-template-columns:44px 1.8em minmax(0,1fr)}.ti .side{grid-column:1/-1;flex-direction:row;justify-content:space-between;align-items:center}.ti .f{grid-template-columns:minmax(0,1fr)}}
@@ -745,7 +747,7 @@ async function drawMapPage(withTiles = true){
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
   ctx.fillStyle = '#141414'; ctx.font = `700 24px ${FONT}`; ctx.fillText('物件位置地圖', PAD, 46);
   ctx.font = `400 13px ${FONT}`; ctx.fillStyle = '#6b655e';
-  const client = $('client').value.trim(); ctx.fillText((client ? client + ' 您好，以下為比較物件的概略位置' : '比較物件的概略位置') + (tour ? '（編號為帶看順序，虛線為帶看動線）' : ''), PAD, 72);
+  const client = $('client').value.trim(); ctx.fillText((client ? client + ' 您好，以下為比較物件的概略位置' : '比較物件的概略位置') + (tour ? (routeInfo && routeInfo.key === stopsKey(tourStops()) ? `（編號為帶看順序，紅線為開車路線，預估總車程約 ${fmtDur(routeInfo.total)}）` : '（編號為帶看順序，虛線為帶看動線）') : ''), PAD, 72);
   ctx.fillStyle = '#c8371e'; ctx.fillRect(PAD, 82, W - PAD * 2, 3);
   ctx.save(); ctx.beginPath(); ctx.rect(PAD, MT, MW, MH); ctx.clip();
   ctx.fillStyle = '#ece9e4'; ctx.fillRect(PAD, MT, MW, MH);
@@ -759,8 +761,9 @@ async function drawMapPage(withTiles = true){
       }
     await Promise.all(jobs);
   }
-  const route = pts.filter(o => tour && o.n).map(o => [PAD + mx(o.p.lng, z) - x0, MT + my(o.p.lat, z) - y0]);
-  if (route.length > 1){ ctx.strokeStyle = 'rgba(200,55,30,.75)'; ctx.lineWidth = 3; ctx.setLineDash([8, 9]); ctx.beginPath(); route.forEach(([x, y], k) => k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.stroke(); ctx.setLineDash([]); }
+  const roadOk = tour && routeInfo && routeInfo.key === stopsKey(tourStops());
+  const route = roadOk ? routeInfo.geom.map(([lat, lng]) => [PAD + mx(lng, z) - x0, MT + my(lat, z) - y0]) : pts.filter(o => tour && o.n).map(o => [PAD + mx(o.p.lng, z) - x0, MT + my(o.p.lat, z) - y0]);
+  if (route.length > 1){ ctx.strokeStyle = 'rgba(200,55,30,.75)'; ctx.lineWidth = roadOk ? 4 : 3; ctx.setLineDash(roadOk ? [] : [8, 9]); ctx.beginPath(); route.forEach(([x, y], k) => k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.stroke(); ctx.setLineDash([]); }
   pts.forEach(({p, n}) => {
     const x = PAD + mx(p.lng, z) - x0, y = MT + my(p.lat, z) - y0;
     ctx.beginPath(); ctx.arc(x, y + 2, 17, 0, Math.PI * 2); ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fill();
@@ -883,6 +886,7 @@ function renderTour(){
           <input class="n" data-t="tourTime" value="${esc(p.tourTime||'')}" placeholder="時間" aria-label="帶看時間">
           <input data-t="tourAddr" value="${esc(tAddr(p))}" placeholder="詳細地址（例：台中市南區忠明南路 123 號）" aria-label="詳細地址">
         </div>
+        <div class="leg" data-leg="${esc(p.id)}"></div>
       </div>
       <div class="side">
         <label><input type="checkbox" data-t="tourOff" ${on?'checked':''}>帶看</label>
@@ -890,8 +894,54 @@ function renderTour(){
       </div>
     </li>`;
   }).join('') : '<li class="msg">先在上方加入物件，這裡就會出現帶看清單。</li>';
-  buildTourText();
+  buildTourText(); showLegs();
   if (typeof drawMap === 'function') drawMap();
+  scheduleRoute();
+}
+// ---- 開車車程：用 OSRM（OpenStreetMap 道路資料）算實際道路路線，不是直線距離 ----
+let routeInfo = null, routeTimer = null;
+const routeCache = {};
+const tourStops = () => tourList().filter(p => !p.tourOff && p.lat != null && p.lng != null);
+const stopsKey = st => st.map(p => `${(+p.lat).toFixed(5)},${(+p.lng).toFixed(5)}`).join(';');
+const fmtDur = sec => { const m = Math.max(1, Math.round(sec / 60)); return m >= 60 ? `${Math.floor(m / 60)}小時${m % 60 ? (m % 60) + '分鐘' : ''}` : `${m}分鐘`; };
+const fmtDist = m => m >= 1000 ? `${(m / 1000).toFixed(1)}公里` : `${Math.round(m)}公尺`;
+function legFrom(p){ // 從這一站開到下一站的車程
+  if (!routeInfo || routeInfo.key !== stopsKey(tourStops())) return null;
+  const i = routeInfo.ids.indexOf(p.id);
+  return i >= 0 && i < routeInfo.legs.length ? routeInfo.legs[i] : null;
+}
+function showLegs(){
+  const st = tourStops(), ok = routeInfo && routeInfo.key === stopsKey(st);
+  for (const el of document.querySelectorAll('#tlist .leg')){
+    const p = props.find(q => q.id === el.dataset.leg); const i = st.indexOf(p);
+    if (!p || p.tourOff || i < 0 || i === st.length - 1){ el.textContent = ''; continue; }
+    const lg = legFrom(p);
+    el.textContent = lg ? `↓ 開車到下一站約 ${fmtDur(lg.dur)}（${fmtDist(lg.dist)}）` : (ok ? '' : '↓ 計算車程中…');
+  }
+}
+function scheduleRoute(){ clearTimeout(routeTimer); routeTimer = setTimeout(calcRoute, 500); }
+async function calcRoute(){
+  if ($('tour').hidden) return;
+  const st = tourStops(); const key = stopsKey(st);
+  if (st.length < 2){ routeInfo = null; showLegs(); buildTourText(); return; }
+  if (routeInfo && routeInfo.key === key) return;
+  if (routeCache[key]){ routeInfo = routeCache[key]; }
+  else {
+    try {
+      const coords = st.map(p => `${p.lng},${p.lat}`).join(';');
+      const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`);
+      const j = await r.json();
+      if (j.code !== 'Ok' || !j.routes || !j.routes[0]) throw new Error(j.code || 'route');
+      const rt = j.routes[0];
+      routeInfo = routeCache[key] = {key, ids: st.map(p => p.id), legs: rt.legs.map(l => ({dur: l.duration, dist: l.distance})), total: rt.duration, geom: rt.geometry.coordinates.map(([lng, lat]) => [lat, lng])};
+    } catch(e){
+      routeInfo = null;
+      for (const el of document.querySelectorAll('#tlist .leg')) if (el.textContent) el.textContent = '↓ 車程暫時算不出來，稍後再試';
+      return;
+    }
+  }
+  if (key !== stopsKey(tourStops())) return; // 計算期間順序又被改了
+  showLegs(); buildTourText(); if (typeof drawMap === 'function') drawMap();
 }
 function dateLabel(){
   const v = $('tDate').value; if (!v) return '';
@@ -912,8 +962,11 @@ function buildTourText(){
     if (p.community) L.push(`社區：${p.community}`);
     if (a) L.push(`地址：${a}`);
     if (q) L.push(`地圖：${mapQ(q)}`);
+    const lg = i < list.length - 1 ? legFrom(p) : null;
+    if (lg && legFrom(p) && routeInfo.ids[routeInfo.ids.indexOf(p.id) + 1] === list[i + 1].id) L.push(`↓ 開車約 ${fmtDur(lg.dur)}（${fmtDist(lg.dist)}）`);
     L.push('');
   });
+  if (routeInfo && routeInfo.key === stopsKey(tourStops()) && routeInfo.ids.length === list.length) L.push(`預估總車程約 ${fmtDur(routeInfo.total)}（不含塞車與停車時間）`, '');
   const stops = (meet ? [meet] : []).concat(list.map(tQuery).filter(Boolean));
   let route = '';
   if (stops.length >= 2){
@@ -1138,13 +1191,15 @@ function drawMap(){
     m.on('dragend', () => { const ll = m.getLatLng(); p.lat = ll.lat; p.lng = ll.lng; p.manualLoc = true; isSample = false; save(); drawMap(); });
     pts.push([p.lat, p.lng]); if (tour && n) route.push([p.lat, p.lng]);
   });
-  if (route.length > 1) L.polyline(route, {color: '#c8371e', weight: 3, opacity: .75, dashArray: '6 8'}).addTo(mapLayer);
+  const roadOk = tour && typeof routeInfo !== 'undefined' && routeInfo && routeInfo.key === stopsKey(tourStops());
+  if (roadOk) L.polyline(routeInfo.geom, {color: '#c8371e', weight: 4, opacity: .8}).addTo(mapLayer); // 實際道路路線
+  else if (route.length > 1) L.polyline(route, {color: '#c8371e', weight: 3, opacity: .75, dashArray: '6 8'}).addTo(mapLayer);
   setTimeout(() => { map.invalidateSize(); if (pts.length) map.fitBounds(pts, {padding: [40, 40], maxZoom: 15}); }, 0);
   $('legend').innerHTML = items.map(({p, n}) => `<span class="${p.lat == null || !n ? 'miss' : ''}"><b>${n || '–'}</b>${esc(p.title || p.code || '未命名')}${p.lat == null ? '（未定位）' : !n ? '（不帶看）' : ''}</span>`).join('');
   const miss = items.filter(({p}) => p.lat == null).length;
   if (!locating) $('mapMsg').textContent = !items.length ? '加入物件後會自動標在地圖上。'
     : miss ? `${miss} 間找不到位置，請在表格或帶看路線補上社區名稱或詳細地址。`
-    : tour ? '編號依「帶看路線」的順序，虛線為帶看動線。' : '';
+    : tour ? (roadOk ? `編號依「帶看路線」的順序，紅線為開車路線，預估總車程約 ${fmtDur(routeInfo.total)}（不含塞車）。` : '編號依「帶看路線」的順序，虛線為帶看動線。') : '';
 }
 async function locateAll(force){
   if (locating) return; locating = true; $('locBtn').disabled = true;
