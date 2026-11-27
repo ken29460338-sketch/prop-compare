@@ -10,6 +10,7 @@ https://plvr.land.moi.gov.tw/DownloadOpenData
 """
 import csv, io, json, os, re, sys, time, urllib.request, datetime, shutil
 
+csv.field_size_limit(10 ** 8)  # 部分預售屋資料欄位很長（備註、棟及號）
 CITIES = [c.strip().upper() for c in os.environ.get('CITIES', 'B').split(',') if c.strip()]
 OUT = os.path.join(os.path.dirname(__file__), '..', 'data', 'lvr')
 BASE = 'https://plvr.land.moi.gov.tw/'
@@ -125,7 +126,12 @@ def presale_names(code):
         b = get(url, tries=2)
         if not b or len(b) < 200:
             continue
-        rd = csv.reader(io.StringIO(decode(b)))
+        try:
+            rows_ = list(csv.reader(io.StringIO(decode(b))))
+        except csv.Error as e:
+            print('presale parse error', url, e, flush=True)
+            continue
+        rd = iter(rows_)
         head = next(rd, None)
         if not head or '建案名稱' not in ''.join(head):
             continue
