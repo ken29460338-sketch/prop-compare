@@ -311,9 +311,6 @@ const nf = v => String(Math.round(v * 100) / 100);
 const ROWS = [
   {k:'title', l:'案名', f:['title','community'], icon:'tag', show:p => p.title || ''},
   {k:'address', l:'地址', f:['address'], icon:'pin', show:p => p.address || ''},
-  {k:'total', l:'總價／平均單價', f:['price','parkType','parkArea','parkPrice'], icon:'coins', strong:1,
-    show:p => { const c = calc(p); return num(p.price) ? `${fN(num(p.price))}萬／約${c.withPark ? f2(c.withPark) : '—'}萬/坪` : ''; },
-    sub:p => { const c = calc(p); if (!num(p.price)) return ''; return c.unit ? `約${f2(c.unit)}萬/坪（扣車位）` : `扣車單價：${c.why}`; }},
   {k:'area', l:'建物登記坪數', f:['area'], icon:'house', show:p => num(p.area) != null ? `約${nf(num(p.area))}坪` : ''},
   {k:'mainBal', l:'主建物＋陽台', f:['mainArea','balcony'], icon:'plan',
     show:p => { const m = num(p.mainArea), b = num(p.balcony); return (m == null && b == null) ? '' : `約${nf((m||0)+(b||0))}坪`; },
@@ -336,7 +333,10 @@ const ROWS = [
     return bits.length ? `${s}，${bits.join('／')}` : s; }},
   {k:'mgmt', l:'警衛管理／管理費', f:['guard','mgmtFee'], icon:'shield', show:p => [p.guard, num(p.mgmtFee) ? `約${fN(num(p.mgmtFee))}元/月` : ''].filter(Boolean).join(' / ')},
   {k:'direction', l:'朝向', f:['direction'], icon:'compass', show:p => p.direction || ''},
-  {k:'memo', l:'備註', f:['memo'], icon:'note', show:p => p.memo || ''}
+  {k:'memo', l:'備註', f:['memo'], icon:'note', show:p => p.memo || ''},
+  {k:'total', l:'總價／平均單價', f:['price','parkType','parkArea','parkPrice'], icon:'coins', strong:1,
+    show:p => { const c = calc(p); return num(p.price) ? `${fN(num(p.price))}萬／約${c.withPark ? f2(c.withPark) : '—'}萬/坪` : ''; },
+    sub:p => { const c = calc(p); if (!num(p.price)) return ''; return c.unit ? `約${f2(c.unit)}萬/坪（扣車位）` : `扣車單價：${c.why}`; }}
 ];
 // 線條小圖示（24×24 座標），網頁表格與比較圖共用
 const ICONS = {
