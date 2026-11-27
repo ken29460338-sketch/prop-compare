@@ -116,6 +116,67 @@ def safe(name):
     return re.sub(r'[\\/:*?"<>|]', '_', name)
 
 
+def read_csv(url, need):
+    b = get(url, tries=2)
+    if not b or len(b) < 40:
+        return None, None
+    try:
+        rows_ = list(csv.reader(io.StringIO(decode(b))))
+    except csv.Error as e:
+        print('parse error', url, e, flush=True)
+        return None, None
+    if not rows_ or need not in ''.join(rows_[0]):
+        return None, None
+    return {h.strip(): i for i, h in enumerate(rows_[0])}, rows_[1:]
+
+
+def lot_key(town, loc):
+    """土地位置 → (區, 地段, 地號)，例：臺中市南屯區鎮平段123-4地號 → ('南屯區', '鎮平段', '123-4')"""
+    a = str(loc or '').translate(FW).replace(' ', '')
+    a = re.sub(r'^(臺|台)?中市', '', a)
+    if town and a.startswith(town):
+        a = a[len(town):]
+    m = re.match(r'^(.*?段(?:.{1,3}小段)?)(\d+(?:-\d+)?)地號', a)
+    return (town, m.group(1), m.group(2)) if m else None
+
+
+def lot_names(code):
+    """預售屋：建案名稱 ↔ 建案坐落的地號（_B 主檔的編號 → 名稱，_B_LAND 的編號 → 地號）"""
+    from collections import Counter
+    lots = {}
+    for s_ in list(seasons()) + ['now']:
+        base = f'{BASE}Download?fileName={code}_lvr_land_B' if s_ == 'now' else f'{BASE}DownloadSeason?season={s_}&fileName={code}_lvr_land_B'
+        H, rows_ = read_csv(base + '.csv', '建案名稱')
+        if not H:
+            continue
+        iid, iname, it, ia = H.get('編號'), H.get('建案名稱'), H.get('鄉鎮市區'), H.get('土地位置建物門牌')
+        names, towns = {}, {}
+        for r in rows_:
+            if iid is None or len(r) <= max(iid, iname) or r[0].startswith('The '):
+                continue
+            nm = re.sub(r'\s+', '', r[iname])
+            if nm and nm not in ('-', '無'):
+                names[r[iid]] = nm
+                towns[r[iid]] = r[it].strip()
+                k = lot_key(r[it].strip(), r[ia])  # 主檔的位置有時本身就是地號
+                if k:
+                    lots.setdefault(k, Counter())[nm] += 1
+        HL, land = read_csv(base + '_land.csv', '土地位置')
+        if HL:
+            jid, jl = HL.get('編號'), HL.get('土地位置')
+            for r in land:
+                if jid is None or jl is None or len(r) <= max(jid, jl):
+                    continue
+                nm = names.get(r[jid])
+                k = nm and lot_key(towns.get(r[jid], ''), r[jl])
+                if k:
+                    lots.setdefault(k, Counter())[nm] += 1
+        time.sleep(0.5)
+    out = {k: c.most_common(1)[0][0] for k, c in lots.items()}
+    print('presale lots', len(out), flush=True)
+    return out
+
+
 def presale_names(code):
     """預售屋資料有「建案名稱」與門牌：整理成 (區, 路, 巷, 號) → 建案名稱，補到同門牌的成屋成交上"""
     from collections import Counter
@@ -174,6 +235,8 @@ def name_for(names, town, road, lane, lo, hi):
 
 def build_city(code):
     names = presale_names(code)
+    lotname = lot_names(code)
+    by_id = {}  # 成屋交易編號 → 這筆的資料列（之後用土地明細的地號補建案名稱）
     rows = {}  # (town, road) -> [row]
     lands, houses = {}, {}  # town -> [row]（純土地、同區域透天）
     seen = set()
@@ -292,12 +355,54 @@ def build_city(code):
                 name_for(names, town, road, lane, lo, hi),             # 25 社區（建案）名稱：預售屋資料同門牌的建案名稱
             ]
             rows.setdefault((town, road), []).append(row)
+            if g('id'):
+                by_id[g('id')] = (town, row)
             if '透天' in row[7]:
-                houses.setdefault(town, []).append([road] + row)  # 同區域透天（路段案例不足時用）
+                houses.setdefault(town, []).append((road, row))  # 同區域透天（路段案例不足時用）；輸出時才合併，名稱補上後也會帶到
             n += 1
         print('ok', tag, n, flush=True)
         time.sleep(1)
 
+    # 成屋交易的土地明細（_A_LAND）：編號 → 地號，對到預售屋建案的地號就得到社區名稱
+    from collections import Counter
+    if lotname:
+        hit = 0
+        for s_ in list(seasons()) + ['now']:
+            url = f'{BASE}Download?fileName={code}_lvr_land_A_land.csv' if s_ == 'now' else f'{BASE}DownloadSeason?season={s_}&fileName={code}_lvr_land_A_land.csv'
+            HL, land = read_csv(url, '土地位置')
+            if not HL:
+                continue
+            jid, jl = HL.get('編號'), HL.get('土地位置')
+            votes = {}
+            for r in land:
+                if jid is None or jl is None or len(r) <= max(jid, jl) or r[jid] not in by_id:
+                    continue
+                town, row = by_id[r[jid]]
+                nm = lotname.get(lot_key(town, r[jl]) or ())
+                if nm:
+                    votes.setdefault(r[jid], Counter())[nm] += 1
+            for i, c in votes.items():
+                row = by_id[i][1]
+                if not row[25]:
+                    row[25] = c.most_common(1)[0][0]
+                    hit += 1
+            time.sleep(0.5)
+        print('names via land lots', hit, flush=True)
+    # 同一個門牌（同路、同巷、同號）其他成交也補上同一個名稱
+    addr_name = {}
+    for (town, road), lst in rows.items():
+        for r in lst:
+            if r[25] and r[3] is not None and r[3] == r[4]:
+                addr_name.setdefault((town, road, r[2], r[3]), Counter())[r[25]] += 1
+    filled = 0
+    for (town, road), lst in rows.items():
+        for r in lst:
+            if not r[25] and r[3] is not None:
+                c = addr_name.get((town, road, r[2], r[3])) if r[3] == r[4] else None
+                if c:
+                    r[25] = c.most_common(1)[0][0]
+                    filled += 1
+    print('names propagated by address', filled, flush=True)
     out = os.path.join(OUT, code)
     if os.path.isdir(out):
         shutil.rmtree(out)
@@ -312,6 +417,7 @@ def build_city(code):
         index.setdefault(town, []).append(road)
     for t in index:
         index[t].sort()
+    houses = {t: [[rd] + rw for rd, rw in v] for t, v in houses.items()}
     for name, bucket in (('_土地', lands), ('_透天', houses)):  # 每區一個檔：同區域土地、同區域透天
         for town, lst in bucket.items():
             lst.sort(key=lambda x: -(x[1] if name == '_透天' else x[0]))
