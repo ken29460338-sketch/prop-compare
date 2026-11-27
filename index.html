@@ -110,6 +110,7 @@ button.sec{background:var(--panel);border-color:var(--rule)}
 #map{height:440px;border-radius:8px;border:1px solid var(--rule);z-index:0;background:#e9e6e1}
 .pin span{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--brick);color:#fff;font:700 15px "Schibsted Grotesk",sans-serif;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35)}
 .pin.best span{background:#141414}
+.pin.off span{background:#a59e95;width:22px;height:22px;margin:4px;font-size:12px}
 .legend{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:10px;font-size:14px}
 .legend span{display:flex;align-items:center;gap:6px}
 .legend b{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--brick);color:#fff;font:700 12px "Schibsted Grotesk",sans-serif;flex:none}
@@ -725,8 +726,8 @@ const mx = (lon, z) => (lon + 180) / 360 * 256 * 2 ** z;
 const my = (lat, z) => { const r = lat * Math.PI / 180; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 256 * 2 ** z; };
 const loadTile = src => new Promise(res => { const im = new Image(); im.crossOrigin = 'anonymous'; const t = setTimeout(() => res(null), 8000); im.onload = () => { clearTimeout(t); res(im); }; im.onerror = () => { clearTimeout(t); res(null); }; im.src = src; });
 async function drawMapPage(withTiles = true){
-  const list = sorted(), best = null;
-  const pts = list.map((p, i) => ({p, i})).filter(o => o.p.lat != null && o.p.lng != null);
+  const {tour, items} = mapEntries(), best = null, list = items.map(o => o.p);
+  const pts = items.map(({p, n}) => ({p, n})).filter(o => o.p.lat != null && o.p.lng != null);
   if (!pts.length) return null;
   const S = 2, W = 1190, H = 842, PAD = 28, MT = 96;
   const legendRows = Math.ceil(list.length / 2), LH = 22 + legendRows * 24 + 40;
@@ -744,7 +745,7 @@ async function drawMapPage(withTiles = true){
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
   ctx.fillStyle = '#141414'; ctx.font = `700 24px ${FONT}`; ctx.fillText('物件位置地圖', PAD, 46);
   ctx.font = `400 13px ${FONT}`; ctx.fillStyle = '#6b655e';
-  const client = $('client').value.trim(); ctx.fillText(client ? client + ' 您好，以下為比較物件的概略位置' : '比較物件的概略位置', PAD, 72);
+  const client = $('client').value.trim(); ctx.fillText((client ? client + ' 您好，以下為比較物件的概略位置' : '比較物件的概略位置') + (tour ? '（編號為帶看順序，虛線為帶看動線）' : ''), PAD, 72);
   ctx.fillStyle = '#c8371e'; ctx.fillRect(PAD, 82, W - PAD * 2, 3);
   ctx.save(); ctx.beginPath(); ctx.rect(PAD, MT, MW, MH); ctx.clip();
   ctx.fillStyle = '#ece9e4'; ctx.fillRect(PAD, MT, MW, MH);
@@ -758,12 +759,14 @@ async function drawMapPage(withTiles = true){
       }
     await Promise.all(jobs);
   }
-  pts.forEach(({p, i}) => {
+  const route = pts.filter(o => tour && o.n).map(o => [PAD + mx(o.p.lng, z) - x0, MT + my(o.p.lat, z) - y0]);
+  if (route.length > 1){ ctx.strokeStyle = 'rgba(200,55,30,.75)'; ctx.lineWidth = 3; ctx.setLineDash([8, 9]); ctx.beginPath(); route.forEach(([x, y], k) => k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.stroke(); ctx.setLineDash([]); }
+  pts.forEach(({p, n}) => {
     const x = PAD + mx(p.lng, z) - x0, y = MT + my(p.lat, z) - y0;
     ctx.beginPath(); ctx.arc(x, y + 2, 17, 0, Math.PI * 2); ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fill();
     ctx.beginPath(); ctx.arc(x, y, 17, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill();
-    ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI * 2); ctx.fillStyle = p.id === best ? '#141414' : '#c8371e'; ctx.fill();
-    ctx.fillStyle = '#fff'; ctx.font = `700 15px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(i + 1), x, y + 1);
+    ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI * 2); ctx.fillStyle = n ? '#c8371e' : '#a59e95'; ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = `700 15px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(n ? String(n) : '·', x, y + 1);
     ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
   });
   ctx.restore();
@@ -771,12 +774,12 @@ async function drawMapPage(withTiles = true){
   ctx.font = `400 10px ${FONT}`; ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.fillRect(PAD + MW - 150, MT + MH - 18, 150, 18);
   ctx.fillStyle = '#555'; ctx.textAlign = 'right'; ctx.fillText('© OpenStreetMap 貢獻者', PAD + MW - 6, MT + MH - 5); ctx.textAlign = 'left';
   const ly = MT + MH + 30, colW = (W - PAD * 2) / 2;
-  list.forEach((p, i) => {
+  items.forEach(({p, n}, i) => {
     const x = PAD + (i % 2) * colW, y = ly + Math.floor(i / 2) * 24, has = p.lat != null;
-    ctx.beginPath(); ctx.arc(x + 10, y - 5, 10, 0, Math.PI * 2); ctx.fillStyle = !has ? '#d2cdc6' : p.id === best ? '#141414' : '#c8371e'; ctx.fill();
-    ctx.fillStyle = '#fff'; ctx.font = `700 11px ${FONT}`; ctx.textAlign = 'center'; ctx.fillText(String(i + 1), x + 10, y - 1); ctx.textAlign = 'left';
+    ctx.beginPath(); ctx.arc(x + 10, y - 5, 10, 0, Math.PI * 2); ctx.fillStyle = !has || !n ? '#d2cdc6' : '#c8371e'; ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = `700 11px ${FONT}`; ctx.textAlign = 'center'; ctx.fillText(n ? String(n) : '–', x + 10, y - 1); ctx.textAlign = 'left';
     ctx.fillStyle = '#141414'; ctx.font = `400 14px ${FONT}`;
-    const label = `${p.title || p.code || '未命名'}${p.community ? '（' + p.community + '）' : ''}${has ? '' : '　未定位'}`;
+    const label = `${p.title || p.code || '未命名'}${p.community ? '（' + p.community + '）' : ''}${!has ? '　未定位' : !n ? '　不帶看' : ''}`;
     ctx.fillText(wrap(ctx, label, colW - 40, 1)[0] || '', x + 28, y);
   });
   ctx.fillStyle = '#6b655e'; ctx.font = `400 12px ${FONT}`;
@@ -888,6 +891,7 @@ function renderTour(){
     </li>`;
   }).join('') : '<li class="msg">先在上方加入物件，這裡就會出現帶看清單。</li>';
   buildTourText();
+  if (typeof drawMap === 'function') drawMap();
 }
 function dateLabel(){
   const v = $('tDate').value; if (!v) return '';
@@ -1115,23 +1119,32 @@ function initMap(){
   mapLayer = L.layerGroup().addTo(map);
   return true;
 }
+// 地圖編號：打開「帶看路線」時照帶看順序（沒勾帶看的不編號），否則照比較表排序
+function mapEntries(){
+  const tour = !$('tour').hidden && typeof tourList === 'function' && !location.hash.startsWith('#d=');
+  if (!tour) return {tour, items: sorted().map((p, i) => ({p, n: i + 1}))};
+  let n = 0; return {tour, items: tourList().map(p => ({p, n: p.tourOff ? null : ++n}))};
+}
 function drawMap(){
   if (!window.L){ $('mapMsg').textContent = '地圖元件沒有載入，請檢查網路後重新整理。'; return; }
   initMap(); mapLayer.clearLayers();
-  const shared = location.hash.startsWith('#d='), best = null, pts = [];
-  const list = sorted();
-  list.forEach((p, i) => {
+  const shared = location.hash.startsWith('#d='), pts = [], route = [];
+  const {tour, items} = mapEntries();
+  items.forEach(({p, n}) => {
     if (p.lat == null || p.lng == null) return;
-    const icon = L.divIcon({className: 'pin' + (p.id === best ? ' best' : ''), html: `<span>${i+1}</span>`, iconSize: [30, 30], iconAnchor: [15, 15]});
-    const m = L.marker([p.lat, p.lng], {icon, draggable: !shared, keyboard: true, title: p.title || p.code || ''}).addTo(mapLayer);
-    m.bindTooltip(esc(`${i+1}. ${p.title || p.code || ''}${p.community ? '（' + p.community + '）' : ''}`));
-    m.on('dragend', () => { const ll = m.getLatLng(); p.lat = ll.lat; p.lng = ll.lng; p.manualLoc = true; isSample = false; save(); });
-    pts.push([p.lat, p.lng]);
+    const icon = L.divIcon({className: 'pin' + (n ? '' : ' off'), html: `<span>${n || '·'}</span>`, iconSize: [30, 30], iconAnchor: [15, 15]});
+    const m = L.marker([p.lat, p.lng], {icon, draggable: !shared, keyboard: true, title: p.title || p.code || '', zIndexOffset: n ? 1000 - n : 0}).addTo(mapLayer);
+    m.bindTooltip(esc(`${n ? n + '. ' : ''}${p.title || p.code || ''}${p.community ? '（' + p.community + '）' : ''}`));
+    m.on('dragend', () => { const ll = m.getLatLng(); p.lat = ll.lat; p.lng = ll.lng; p.manualLoc = true; isSample = false; save(); drawMap(); });
+    pts.push([p.lat, p.lng]); if (tour && n) route.push([p.lat, p.lng]);
   });
+  if (route.length > 1) L.polyline(route, {color: '#c8371e', weight: 3, opacity: .75, dashArray: '6 8'}).addTo(mapLayer);
   setTimeout(() => { map.invalidateSize(); if (pts.length) map.fitBounds(pts, {padding: [40, 40], maxZoom: 15}); }, 0);
-  $('legend').innerHTML = list.map((p, i) => `<span class="${p.lat == null ? 'miss' : ''}"><b>${i+1}</b>${esc(p.title || p.code || '未命名')}${p.lat == null ? '（未定位）' : ''}</span>`).join('');
-  const miss = list.filter(p => p.lat == null).length;
-  if (!locating) $('mapMsg').textContent = !list.length ? '加入物件後會自動標在地圖上。' : miss ? `${miss} 間找不到位置，請在表格或帶看路線補上社區名稱或詳細地址。` : '';
+  $('legend').innerHTML = items.map(({p, n}) => `<span class="${p.lat == null || !n ? 'miss' : ''}"><b>${n || '–'}</b>${esc(p.title || p.code || '未命名')}${p.lat == null ? '（未定位）' : !n ? '（不帶看）' : ''}</span>`).join('');
+  const miss = items.filter(({p}) => p.lat == null).length;
+  if (!locating) $('mapMsg').textContent = !items.length ? '加入物件後會自動標在地圖上。'
+    : miss ? `${miss} 間找不到位置，請在表格或帶看路線補上社區名稱或詳細地址。`
+    : tour ? '編號依「帶看路線」的順序，虛線為帶看動線。' : '';
 }
 async function locateAll(force){
   if (locating) return; locating = true; $('locBtn').disabled = true;
