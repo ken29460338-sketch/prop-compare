@@ -811,7 +811,7 @@ $('tourBtn').addEventListener('click', () => {
   $('tour').scrollIntoView({behavior: smooth()});
 });
 // 官網資料：透過 Cloudflare Worker 讀信義官網（worker/sinyi-proxy.js），還沒設定時 FETCH_URL 留空
-const FETCH_URL = '';
+const FETCH_URL = 'https://sinyi-proxy.ken29460338.workers.dev/';
 function applyOfficial(p, d){
   if (num(d.price)) { p.price = num(d.price); if (num(d.origPrice)) p.origPrice = num(d.origPrice); }
   for (const k of ['area','mainArea','age','parkArea','mgmtFee']) if (num(d[k]) != null) p[k] = num(d[k]);
