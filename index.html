@@ -368,9 +368,13 @@ const ROWS = [
   {k:'direction', l:'朝向', f:['direction'], icon:'compass', show:p => p.direction || ''},
   {k:'memo', l:'備註', f:['memo'], icon:'note', show:p => p.memo || ''},
   {k:'total', l:'總價／平均單價', f:['price','parkType','parkArea','parkPrice'], icon:'coins', strong:1,
-    show:p => { const c = calc(p); return num(p.price) ? `${fN(num(p.price))}萬／約${c.withPark ? f2(c.withPark) : '—'}萬/坪` : ''; },
-    sub:p => { const c = calc(p); if (!num(p.price)) return ''; return c.unit ? `約${f2(c.unit)}萬/坪（扣車位）` : `扣車單價：${c.why}`; }}
+    show:p => { if (!num(p.price)) return ''; if (isLandType(p)){ const u = landUnitOf(p); return `${fN(num(p.price))}萬／約${u ? f2(u) : '—'}萬/坪`; } const c = calc(p); return `${fN(num(p.price))}萬／約${c.withPark ? f2(c.withPark) : '—'}萬/坪`; },
+    sub:p => { if (!num(p.price)) return ''; if (isLandType(p)) return landUnitOf(p) ? (landKind(p) === 'house' ? '地坪單價＝總價÷土地坪數（含建物價值）' : '地坪單價＝總價÷土地坪數') : '地坪單價：請填土地坪數'; const c = calc(p); return c.unit ? `約${f2(c.unit)}萬/坪（扣車位）` : `扣車單價：${c.why}`; }}
 ];
+// 透天、土地：總價列改顯示地坪單價（總價÷土地坪數），不算扣車單價
+function landKind(p){ try { return catOf(p); } catch(e){ return ''; } }
+const isLandType = p => ['house', 'land'].includes(landKind(p));
+const landUnitOf = p => num(p.landUnit) != null ? num(p.landUnit) : (num(p.price) && num(p.landArea) ? num(p.price) / num(p.landArea) : null);
 // 線條小圖示（24×24 座標），網頁表格與比較圖共用
 const ICONS = {
   tag:'M4 4h8l8 8-8 8-8-8z M8.5 8.5h.01',
@@ -480,7 +484,7 @@ function cellHtml(p, r){
   const t = r.show(p), sub = r.sub ? r.sub(p) : '';
   let extra = '';
   if (r.k === 'total' && num(p.origPrice) && num(p.price) && num(p.origPrice) > num(p.price)) extra = `<span class="drop n">原 ${fN(num(p.origPrice))} 萬，降 ${fN(num(p.origPrice) - num(p.price))} 萬</span>`;
-  const subWarn = r.k === 'total' && !calc(p).unit;
+  const subWarn = r.k === 'total' && (isLandType(p) ? !landUnitOf(p) : !calc(p).unit);
   return t ? `<span class="mn">${esc(t)}</span>${sub ? `<span class="sb ${subWarn ? 'warn' : ''}">${esc(sub)}</span>` : ''}${extra}` : '<span class="ph">點此填寫</span>';
 }
 function render(){
@@ -716,11 +720,12 @@ function drawImage(opt = {}){ // opt.cv：畫到別的畫布（PDF 用）；opt.
         const pr = num(p.price), c1 = calc(p);
         if (pr){
           ctx.font = `700 36px ${SERIF}`; const a = fN(pr); const aw = ctx.measureText(a).width;
-          ctx.font = `700 26px ${SERIF}`; const bTxt = `萬 / 約${c1.withPark ? f2(c1.withPark) : '—'}萬/坪`; const bw = ctx.measureText(bTxt).width;
+          const lu = isLandType(p) ? landUnitOf(p) : null;
+          ctx.font = `700 26px ${SERIF}`; const bTxt = isLandType(p) ? `萬 / 地坪約${lu ? f2(lu) : '—'}萬/坪` : `萬 / 約${c1.withPark ? f2(c1.withPark) : '—'}萬/坪`; const bw = ctx.measureText(bTxt).width;
           const sx = c.x + c.w / 2 - (aw + bw) / 2;
           ctx.textAlign = 'left'; ctx.fillStyle = BROWN; ctx.font = `700 36px ${SERIF}`; ctx.fillText(a, sx, y + 48);
           ctx.font = `700 24px ${SERIF}`; ctx.fillText(bTxt, sx + aw + 4, y + 48);
-          ctx.textAlign = 'center'; ctx.font = `400 21px ${FONT}`; ctx.fillStyle = c1.unit ? INK : MUTE;
+          ctx.textAlign = 'center'; ctx.font = `400 21px ${FONT}`; ctx.fillStyle = isLandType(p) ? (lu ? INK : MUTE) : c1.unit ? INK : MUTE;
           ctx.fillText(r.sub(p), c.x + c.w / 2, y + 84);
         }
         ctx.textAlign = 'left';
