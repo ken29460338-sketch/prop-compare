@@ -645,14 +645,14 @@ function drawImage(opt = {}){ // opt.cv：畫到別的畫布（PDF 用）；opt.
   const MW = CW - 48;
   const cv = opt.cv || $('cv'), mctx = cv.getContext('2d');
   let VF, LH, rowH, bodyH, H;
-  const linesOf = (r, p) => { const t = r.show(p); if (!t) return []; const ls = wrap(mctx, t, MW - (r.k === 'address' ? 32 : 0), 2); const sub = r.sub ? r.sub(p) : ''; return sub ? ls.concat(wrap(mctx, sub, MW, 1)) : ls; };
+  const linesOf = (r, p) => { const t = r.show(p); if (!t) return []; const ls = wrap(mctx, t, MW - (r.k === 'address' ? 32 : 0), 2); const sub = r.sub ? r.sub(p) : ''; return sub ? ls.concat(wrap(mctx, sub, MW, 2)) : ls; }; // 小字說明最多兩行，不截斷
   const layout = k => {
     VF = Math.round(22 * fontScale * k); LH = Math.round(VF * 1.38); mctx.font = `400 ${VF}px ${FONT}`; rowH = {};
     rows.forEach(r => { rowH[r.k] = r.k === 'total' ? 104 : Math.max(56, 26 + LH * Math.max(1, ...list.map(p => linesOf(r, p).length))); });
     bodyH = rows.reduce((t, r) => t + rowH[r.k], 0); H = TOP + HH + bodyH + 24 + 92; return H;
   };
   let k = 1;
-  if (opt.fill){ for (let kk = 1.45; kk > 1; kk -= 0.05) if (layout(kk) <= opt.fill * W){ k = kk; break; } }
+  if (opt.fill){ for (let kk = 1.3; kk > 1; kk -= 0.05) if (layout(kk) <= opt.fill * W){ k = kk; break; } }
   layout(k);
   if (opt.fill && H < opt.fill * W){ const extra = opt.fill * W - H, per = extra / rows.length; rows.forEach(r => { rowH[r.k] += per; }); bodyH += extra; H += extra; } // 剩下的空間平均分給每一列
   const rh = r => rowH[r.k];
