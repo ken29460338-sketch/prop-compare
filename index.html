@@ -129,7 +129,8 @@ button.sec{background:var(--panel);border-color:var(--rule)}
 .lvr th{background:#f4f2ee;font-weight:600;font-size:13px}
 .lvr td.l{text-align:left}
 .lvr .span button{margin-right:6px}
-.lvr .span button.on{background:#7d8f6e;color:#fff;border-color:#7d8f6e}
+.lvr .span button.on,#lvrPrevBar button.on{background:#7d8f6e;color:#fff;border-color:#7d8f6e}
+#lvrPrevBar button{margin:0 6px 6px 0}
 .lvr .nt{color:#b54708;cursor:help}
 .lvr tr.rel td{background:#fff1f0}
 .lvr .relt{display:inline-block;background:#c8371e;color:#fff;font-size:11px;line-height:1;padding:3px 5px;border-radius:4px;margin-left:4px;vertical-align:1px;cursor:help}
@@ -324,6 +325,10 @@ button.sec{background:var(--panel);border-color:var(--rule)}
       </div>
     </div>
     <div class="row" id="themeBar" style="gap:8px;align-items:center;margin:8px 0 0;flex-wrap:wrap"><span class="msg" style="margin:0">比較表樣式：</span></div>
+    <div id="lvrPrevBar" style="display:none;margin:8px 0 0">
+      <div><span class="msg" style="font-size:13px;margin-right:6px">期間：</span><span data-g="span"></span></div>
+      <div><span class="msg" style="font-size:13px;margin-right:6px">範圍：</span><span data-g="scope"></span></div>
+    </div>
     <p class="msg" style="margin:6px 0 10px" id="prevNote">整列都沒資料的項目不會出現在圖上。要修改內容請直接改上方表格，再按一次「產生比較圖」。</p>
     <canvas id="cv"></canvas>
     <div id="prevPages"></div>
@@ -834,6 +839,7 @@ let prevPages = [], prevKind = 'cmp';
 function showPreview(kind, title, note, pages){
   prevKind = kind; prevPages = pages; lastCanvas = pages[0] || null;
   if ($('themeBar')){ $('themeBar').style.display = kind === 'cmp' ? 'flex' : 'none'; renderThemeBar(); }
+  if ($('lvrPrevBar')){ $('lvrPrevBar').style.display = kind === 'lvr' ? 'block' : 'none'; if (kind === 'lvr') renderLvrPrevBar(); }
   $('prevTitle').textContent = title; $('prevNote').textContent = note;
   const box = $('prevPages'); box.innerHTML = '';
   if (pages.length === 1 && pages[0] === $('cv')) $('cv').style.display = '';
@@ -970,6 +976,27 @@ async function drawLayoutPage(){
   try { cv.toDataURL('image/jpeg'); } catch(e){ return null; }
   return cv;
 }
+const LVR_PREV_NOTE = '直接點上面的期間或範圍就會重新整理；上方「社區行情」區也會一起切換。';
+// 實價登錄預覽：期間、範圍按鈕（和上方社區行情區同步）
+function renderLvrPrevBar(){
+  const bar = $('lvrPrevBar'); if (!bar) return;
+  for (const g of ['span', 'scope']){
+    const box = bar.querySelector(`[data-g="${g}"]`), cur = g === 'span' ? lvrSpan : lvrScope;
+    box.innerHTML = [...$('lvrSec').querySelectorAll(`[data-${g}]`)].map(b => `<button class="s ${b.dataset[g] === cur ? 'on' : ''}" data-pg="${g}" data-v="${esc(b.dataset[g])}">${esc(b.textContent)}</button>`).join('');
+  }
+}
+let lvrPrevBusy = false;
+$('lvrPrevBar').addEventListener('click', async e => {
+  const b = e.target.closest('[data-pg]'); if (!b || lvrPrevBusy) return;
+  if (b.dataset.pg === 'span'){ lvrSpan = b.dataset.v; store.set('pc-lvrSpan', lvrSpan); } else { lvrScope = b.dataset.v; store.set('pc-lvrScope', lvrScope); }
+  lvrPrevBusy = true; renderLvrPrevBar(); $('prevNote').textContent = '重新整理社區行情中…（周遭範圍第一次比較久）';
+  try {
+    renderLvr(); await waitLvr(); await loadFonts();
+    const pages = drawLvrPages();
+    if (pages.length) showPreview('lvr', '實價登錄（社區行情）', LVR_PREV_NOTE, pages);
+    else $('prevNote').textContent = '這個條件下沒有成交資料，可以換長一點的期間或大一點的範圍。';
+  } finally { lvrPrevBusy = false; renderLvrPrevBar(); }
+});
 $('lvrBtn').addEventListener('click', async () => {
   if (!props.length){ $('omsg').textContent = '請先加入物件。'; return; }
   $('omsg').textContent = '整理社區行情中…';
@@ -977,7 +1004,7 @@ $('lvrBtn').addEventListener('click', async () => {
   const pages = drawLvrPages();
   if (!pages.length){ $('omsg').textContent = '社區行情目前沒有資料可以輸出。'; return; }
   $('omsg').textContent = '';
-  showPreview('lvr', '實價登錄（社區行情）', '內容和上方「社區行情」目前選的期間、範圍、行情版本相同；要換條件請先在上方切換，再按一次「產生實價登錄」。', pages);
+  showPreview('lvr', '實價登錄（社區行情）', LVR_PREV_NOTE, pages);
 });
 $('layBtn').addEventListener('click', async () => {
   if (!props.length){ $('omsg').textContent = '請先加入物件。'; return; }
