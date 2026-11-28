@@ -79,6 +79,7 @@ a{color:var(--brick)}
 .low{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;margin-top:18px}
 .prev{margin-top:14px;display:none}
 .prev canvas{width:100%;height:auto;border:1px solid var(--rule);border-radius:8px;background:#fff}
+#prevPages canvas{display:block;margin-bottom:14px}
 .empty{padding:28px;text-align:center;color:var(--mute)}
 .tour{margin-top:18px}
 .tgrid{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:16px;margin-top:12px}
@@ -288,7 +289,9 @@ button.sec{background:var(--panel);border-color:var(--rule)}
         <button class="act" id="shareLink" hidden>🔗 產生分享連結</button>
         <button class="act" id="pdfBtn">📄 下載 PDF</button>
         <button class="act" id="mkImg">🖼 產生比較圖</button>
-        <button class="act" id="tourBtn">🚗 帶看路線</button>
+        <button class="act" id="tourBtn">🚗 產生帶看路線圖</button>
+        <button class="act" id="lvrBtn">📊 產生實價登錄</button>
+        <button class="act" id="layBtn">🏠 產生格局圖比較</button>
         <button class="sec" id="refreshBtn" title="跳過暫存，重新到信義官網抓最新資料（物件改價時用）">↻ 更新官網資料</button>
         <button class="sec" id="reBtn">🔄 重新分析</button>
       </div>
@@ -300,18 +303,19 @@ button.sec{background:var(--panel);border-color:var(--rule)}
 
   <div class="panel prev" id="prev">
     <div class="row" style="justify-content:space-between">
-      <h2 style="margin:0">比較圖預覽</h2>
+      <h2 style="margin:0" id="prevTitle">比較圖預覽</h2>
       <div class="row">
         <button class="p" id="dlImg">下載圖片</button>
-        <button class="p" id="dlPdf">下載 PDF</button>
+        <button class="p" id="dlPdf" title="比較表、帶看路線圖、實價登錄、格局圖比較全部合成一份 PDF">下載 PDF（全部）</button>
         <button id="shImg">分享</button>
         <button id="cpImg">複製圖片</button>
-        <button id="copyText">複製 LINE 文字</button>
+        <button id="copyText">複製帶看路線</button>
         <button id="closePrev">關閉</button>
       </div>
     </div>
-    <p class="msg" style="margin:6px 0 10px">整列都沒資料的項目不會出現在圖上。要修改內容請直接改上方表格，再按一次「產生比較圖」。</p>
+    <p class="msg" style="margin:6px 0 10px" id="prevNote">整列都沒資料的項目不會出現在圖上。要修改內容請直接改上方表格，再按一次「產生比較圖」。</p>
     <canvas id="cv"></canvas>
+    <div id="prevPages"></div>
   </div>
 </div></div>
 
@@ -632,21 +636,27 @@ function drawIcon(ctx, k, x, y, size, color){
   ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   ctx.stroke(new Path2D(ICONS[k] || '')); ctx.restore();
 }
-function drawImage(){
+function drawImage(opt = {}){ // opt.cv：畫到別的畫布（PDF 用）；opt.fill：目標高寬比，內容放大／列高拉開填滿頁面
   const list = sorted(), best = null;
   const rows = visibleRows().filter(r => r.k !== 'title' && list.some(p => String(r.show(p) || '').trim()));
   const n = Math.max(list.length, 1), S = 2, PAD = 28, GAP = 12, LW = 300;
   const CW = n <= 3 ? 430 : n === 4 ? 380 : 330;
   const W = PAD * 2 + LW + n * (CW + GAP), TOP = 168, HH = 72;
-  const VF = Math.round(22 * fontScale), LH = Math.round(VF * 1.38), MW = CW - 48;
-  const mctx = $('cv').getContext('2d'); mctx.font = `400 ${VF}px ${FONT}`;
+  const MW = CW - 48;
+  const cv = opt.cv || $('cv'), mctx = cv.getContext('2d');
+  let VF, LH, rowH, bodyH, H;
   const linesOf = (r, p) => { const t = r.show(p); if (!t) return []; const ls = wrap(mctx, t, MW - (r.k === 'address' ? 32 : 0), 2); const sub = r.sub ? r.sub(p) : ''; return sub ? ls.concat(wrap(mctx, sub, MW, 1)) : ls; };
-  const rowH = {};
-  rows.forEach(r => { rowH[r.k] = r.k === 'total' ? 104 : Math.max(56, 26 + LH * Math.max(1, ...list.map(p => linesOf(r, p).length))); });
+  const layout = k => {
+    VF = Math.round(22 * fontScale * k); LH = Math.round(VF * 1.38); mctx.font = `400 ${VF}px ${FONT}`; rowH = {};
+    rows.forEach(r => { rowH[r.k] = r.k === 'total' ? 104 : Math.max(56, 26 + LH * Math.max(1, ...list.map(p => linesOf(r, p).length))); });
+    bodyH = rows.reduce((t, r) => t + rowH[r.k], 0); H = TOP + HH + bodyH + 24 + 92; return H;
+  };
+  let k = 1;
+  if (opt.fill){ for (let kk = 1.45; kk > 1; kk -= 0.05) if (layout(kk) <= opt.fill * W){ k = kk; break; } }
+  layout(k);
+  if (opt.fill && H < opt.fill * W){ const extra = opt.fill * W - H, per = extra / rows.length; rows.forEach(r => { rowH[r.k] += per; }); bodyH += extra; H += extra; } // 剩下的空間平均分給每一列
   const rh = r => rowH[r.k];
-  const bodyH = rows.reduce((t, r) => t + rh(r), 0);
-  const H = TOP + HH + bodyH + 24 + 92;
-  const cv = $('cv'), ctx = cv.getContext('2d');
+  const ctx = cv.getContext('2d');
   cv.width = W * S; cv.height = H * S; ctx.setTransform(S, 0, 0, S, 0, 0);
   const SAGE = '#7d8f6e', INK = '#3f3f38', MUTE = '#7a776d', LINE = '#ddd6c8', CREAM = '#f6efe3', BROWN = '#6b5a3e';
   // 底色與裝飾
@@ -741,26 +751,164 @@ function drawImage(){
   const who = [$('store').value.trim(), $('agent').value.trim(), $('phone').value.trim()].filter(Boolean).join('　');
   if (who){ ctx.fillStyle = INK; ctx.font = `700 20px ${FONT}`; ctx.fillText(who, PAD + 6, fy + 34); }
   const d = new Date(); ctx.textAlign = 'right'; ctx.fillStyle = MUTE; ctx.font = `400 16px ${FONT}`; ctx.fillText(`${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`, W - PAD - 6, fy + 34); ctx.textAlign = 'left';
-  lastCanvas = cv;
+  if (!opt.cv) lastCanvas = cv;
+  return cv;
+}
+// ---- 預覽區：比較圖／帶看路線圖／實價登錄／格局圖比較共用；可以一次顯示多頁 ----
+let prevPages = [], prevKind = 'cmp';
+function showPreview(kind, title, note, pages){
+  prevKind = kind; prevPages = pages; lastCanvas = pages[0] || null;
+  $('prevTitle').textContent = title; $('prevNote').textContent = note;
+  const box = $('prevPages'); box.innerHTML = '';
+  if (pages.length === 1 && pages[0] === $('cv')) $('cv').style.display = '';
+  else { $('cv').style.display = 'none'; pages.forEach(c => box.appendChild(c)); }
+  $('prev').style.display = 'block'; $('prev').scrollIntoView({behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'});
 }
 $('mkImg').addEventListener('click', async () => {
   if (!props.length){ $('omsg').textContent = '請先加入物件。'; return; }
   await loadFonts();
-  drawImage(); $('prev').style.display = 'block'; $('prev').scrollIntoView({behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'});
+  drawImage();
+  showPreview('cmp', '比較圖預覽', '整列都沒資料的項目不會出現在圖上。要修改內容請直接改上方表格，再按一次「產生比較圖」。', [$('cv')]);
+});
+// 等帶看路線的車程算好（最多 10 秒）
+async function waitRoute(){
+  for (let i = 0; i < 40; i++){ const st = tourStops(); if (st.length < 2 || (routeInfo && routeInfo.key === stopsKey(st))) return; await sleep(250); }
+}
+// 等社區行情算完（最多 90 秒，周遭範圍第一次比較久）
+let lvrBusy = 0;
+async function waitLvr(){
+  await sleep(500);
+  for (let i = 0; i < 180 && (lvrBusy > 0 || lvrTimer); i++) await sleep(500);
+}
+async function makeTourImage(){
+  $('tour').hidden = false; renderTour(); store.set('pc-tourOpen', true);
+  await waitRoute(); await loadFonts();
+  return drawMapPage(true, '帶看路線圖');
+}
+// 實價登錄頁：把上方「社區行情」目前顯示的內容（含期間、範圍、行情版本）畫成 A4 橫式頁面
+function drawLvrPages(){
+  const blocks = [...document.querySelectorAll('#lvrList .blk')];
+  if (!blocks.length) return [];
+  const S = 2, W = 1190, H = 842, PAD = 30, pages = [];
+  const span = $('lvrSec').querySelector('[data-span].on')?.textContent || '', scope = $('lvrSec').querySelector('[data-scope].on')?.textContent || '';
+  let cv, ctx, y;
+  const newPage = () => {
+    cv = document.createElement('canvas'); cv.width = W * S; cv.height = H * S; ctx = cv.getContext('2d'); ctx.setTransform(S, 0, 0, S, 0, 0);
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#141414'; ctx.font = `700 24px ${FONT}`; ctx.fillText('社區行情（實價登錄）', PAD, 46);
+    ctx.fillStyle = '#6b655e'; ctx.font = `400 13px ${FONT}`; ctx.fillText(`期間：${span}｜範圍：${scope}｜資料來源：內政部不動產交易實價查詢服務網 Open Data`, PAD, 70);
+    ctx.fillStyle = '#7d8f6e'; ctx.fillRect(PAD, 80, W - PAD * 2, 3);
+    pages.push(cv); y = 108;
+  };
+  const foot = () => { ctx.fillStyle = '#8a857c'; ctx.font = `400 11px ${FONT}`; ctx.fillText('紅底為親友、員工、共有人或其他特殊關係間之交易（價格常偏低，不列入平均）；位置與社區比對依門牌推估，僅供參考。', PAD, H - 16);
+    ctx.textAlign = 'right'; ctx.fillText(`第 ${pages.length} 頁`, W - PAD, H - 16); ctx.textAlign = 'left'; };
+  newPage();
+  for (const b of blocks){
+    const name = (b.querySelector('h3')?.childNodes[0]?.textContent || '').trim();
+    const sum = (b.querySelector('.sumline') || b.querySelector('.msg'))?.textContent.trim() || '';
+    const ths = [...b.querySelectorAll('thead th')].map(t => t.textContent.trim());
+    const trs = [...b.querySelectorAll('tbody tr')].map(tr => ({rel: tr.classList.contains('rel'), cells: [...tr.children].map(td => td.textContent.replace(/\s+/g, ' ').replace('特殊關係交易・價格可能偏低', '【特殊關係】').trim())}));
+    ctx.font = `400 13px ${FONT}`; const sumL = wrap(ctx, sum, W - PAD * 2, 3);
+    const RH = 23, need = 30 + sumL.length * 19 + (trs.length ? 28 + Math.min(trs.length, 3) * RH : 0);
+    if (y + need > H - 40){ foot(); newPage(); }
+    ctx.fillStyle = '#141414'; ctx.font = `700 17px ${FONT}`; ctx.fillText(name, PAD, y + 4); y += 24;
+    ctx.fillStyle = '#4a463f'; ctx.font = `400 13px ${FONT}`; sumL.forEach(l => { ctx.fillText(l, PAD, y); y += 19; });
+    if (!trs.length){ y += 12; continue; }
+    // 欄寬依內容長度分配
+    ctx.font = `400 12.5px ${FONT}`;
+    const nat = ths.map((h, j) => Math.min(j === 1 ? 300 : 170, Math.max(ctx.measureText(h).width, ...trs.map(r => ctx.measureText(r.cells[j] || '').width)) + 14));
+    const tot = nat.reduce((a, c) => a + c, 0), sc = (W - PAD * 2) / tot, cw = nat.map(w => w * sc);
+    const head = () => { ctx.fillStyle = '#f0ede6'; ctx.fillRect(PAD, y, W - PAD * 2, 24); ctx.fillStyle = '#3f3f38'; ctx.font = `700 12px ${FONT}`; let x = PAD; ths.forEach((h, j) => { ctx.textAlign = 'center'; ctx.fillText(wrap(ctx, h, cw[j] - 6, 1)[0] || '', x + cw[j] / 2, y + 16); x += cw[j]; }); ctx.textAlign = 'left'; y += 26; };
+    head();
+    for (const r of trs){
+      if (y + RH > H - 40){ foot(); newPage(); ctx.fillStyle = '#141414'; ctx.font = `700 15px ${FONT}`; ctx.fillText(name + '（續）', PAD, y + 4); y += 22; head(); }
+      if (r.rel){ ctx.fillStyle = '#fde8e4'; ctx.fillRect(PAD, y - 2, W - PAD * 2, RH); }
+      let x = PAD; ctx.font = `400 12.5px ${FONT}`;
+      r.cells.forEach((c, j) => { ctx.fillStyle = r.rel && c.includes('【特殊關係】') ? '#c8371e' : '#2b2925'; ctx.textAlign = j === 1 ? 'left' : 'center'; ctx.fillText(wrap(ctx, c, cw[j] - 8, 1)[0] || '', j === 1 ? x + 4 : x + cw[j] / 2, y + 14); x += cw[j]; });
+      ctx.textAlign = 'left'; ctx.strokeStyle = '#ece8e0'; ctx.beginPath(); ctx.moveTo(PAD, y + RH - 2); ctx.lineTo(W - PAD, y + RH - 2); ctx.stroke();
+      y += RH;
+    }
+    y += 16;
+  }
+  foot();
+  return pages;
+}
+// 格局圖比較：所有格局圖＋社區名稱放進一張 A4，自動選直式／橫式與排法，讓每張格局圖盡量大
+const loadImg = src => new Promise(res => { const im = new Image(); im.crossOrigin = 'anonymous'; const t = setTimeout(() => res(null), 15000); im.onload = () => { clearTimeout(t); res(im); }; im.onerror = () => { clearTimeout(t); res(null); }; im.src = src; });
+async function drawLayoutPage(){
+  const list = sorted().filter(p => /^https:\/\/res\.sinyi\.com\.tw\//.test(p.layoutImage || ''));
+  if (!list.length) return null;
+  await loadFonts();
+  const imgs = await Promise.all(list.map(p => loadImg(`${FETCH_URL}img?u=${encodeURIComponent(p.layoutImage)}`)));
+  const S = 2, PAD = 36, G = 22, TOP = 108, LAB = 58;
+  const dims = imgs.map(im => im ? [im.naturalWidth, im.naturalHeight] : [4, 3]);
+  let best = null;
+  for (const [W, H] of [[842, 1191], [1191, 842]]) for (let cols = 1; cols <= list.length; cols++){
+    const rows = Math.ceil(list.length / cols);
+    const cw = (W - PAD * 2 - (cols - 1) * G) / cols, ch = (H - TOP - PAD - 20 - (rows - 1) * G) / rows - LAB;
+    if (cw < 120 || ch < 120) continue;
+    const scales = dims.map(([w, h]) => Math.min(cw / w, ch / h)), score = Math.min(...dims.map(([w, h], i) => w * h * scales[i] * scales[i]));
+    if (!best || score > best.score) best = {W, H, cols, rows, cw, ch, score};
+  }
+  if (!best) best = {W: 842, H: 1191, cols: 2, rows: Math.ceil(list.length / 2), cw: 370, ch: 200};
+  const {W, H, cols, cw, ch} = best;
+  const cv = document.createElement('canvas'); cv.width = W * S; cv.height = H * S;
+  const ctx = cv.getContext('2d'); ctx.setTransform(S, 0, 0, S, 0, 0);
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#3f3f38'; ctx.font = `700 30px ${SERIF}`; ctx.fillText('格局圖比較', PAD, 56);
+  ctx.fillStyle = '#6b655e'; ctx.font = `400 14px ${FONT}`;
+  const client = $('client').value.trim(); ctx.fillText(`${client ? client + ' 您好，' : ''}以下為各物件的格局圖，標題為社區名稱`, PAD, 82);
+  ctx.fillStyle = '#7d8f6e'; ctx.fillRect(PAD, 92, W - PAD * 2, 3);
+  list.forEach((p, i) => {
+    const x = PAD + (i % cols) * (cw + G), y = TOP + Math.floor(i / cols) * (ch + LAB + G);
+    ctx.fillStyle = '#7d8f6e'; rr(ctx, x, y, cw, 34, 8); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = `700 17px ${FONT}`;
+    ctx.fillText(wrap(ctx, `${i + 1}. ${p.community || p.title || p.code}`, cw - 20, 1)[0] || '', x + 10, y + 23);
+    ctx.fillStyle = '#6b655e'; ctx.font = `400 12.5px ${FONT}`;
+    const sub = [p.community ? p.title : '', p.layout, num(p.area) ? `${f2(num(p.area))}坪` : '', num(p.price) ? `${fN(num(p.price))}萬` : ''].filter(Boolean).join('｜');
+    ctx.fillText(wrap(ctx, sub, cw - 8, 1)[0] || '', x + 4, y + 52);
+    const iy = y + LAB, im = imgs[i];
+    ctx.strokeStyle = '#e2ddd4'; ctx.lineWidth = 1; ctx.strokeRect(x + .5, iy + .5, cw - 1, ch - 1);
+    if (im){ const sc = Math.min((cw - 8) / im.naturalWidth, (ch - 8) / im.naturalHeight), w = im.naturalWidth * sc, h = im.naturalHeight * sc; ctx.drawImage(im, x + (cw - w) / 2, iy + (ch - h) / 2, w, h); }
+    else { ctx.fillStyle = '#a59e95'; ctx.font = `400 14px ${FONT}`; ctx.textAlign = 'center'; ctx.fillText('格局圖載入失敗', x + cw / 2, iy + ch / 2); ctx.textAlign = 'left'; }
+  });
+  const miss = sorted().length - list.length;
+  ctx.fillStyle = '#8a857c'; ctx.font = `400 11px ${FONT}`;
+  ctx.fillText(`格局圖來源：信義房屋物件資料${miss ? `；另有 ${miss} 間沒有格局圖，未列入` : ''}。格局以現場為準。`, PAD, H - 14);
+  try { cv.toDataURL('image/jpeg'); } catch(e){ return null; }
+  return cv;
+}
+$('lvrBtn').addEventListener('click', async () => {
+  if (!props.length){ $('omsg').textContent = '請先加入物件。'; return; }
+  $('omsg').textContent = '整理社區行情中…';
+  renderLvr(); await waitLvr(); await loadFonts();
+  const pages = drawLvrPages();
+  if (!pages.length){ $('omsg').textContent = '社區行情目前沒有資料可以輸出。'; return; }
+  $('omsg').textContent = '';
+  showPreview('lvr', '實價登錄（社區行情）', '內容和上方「社區行情」目前選的期間、範圍、行情版本相同；要換條件請先在上方切換，再按一次「產生實價登錄」。', pages);
+});
+$('layBtn').addEventListener('click', async () => {
+  if (!props.length){ $('omsg').textContent = '請先加入物件。'; return; }
+  $('omsg').textContent = '載入格局圖中…';
+  const cv = await drawLayoutPage();
+  if (!cv){ $('omsg').textContent = '這些物件都沒有格局圖（或格局圖載入失敗）。'; return; }
+  $('omsg').textContent = '';
+  showPreview('layout', '格局圖比較', '所有格局圖排在一張 A4，會依物件數量自動選直式或橫式，讓每張格局圖盡量大。', [cv]);
 });
 $('closePrev').addEventListener('click', () => { $('prev').style.display = 'none'; });
 const fname = ext => `物件比較${$('client').value.trim() ? '_' + $('client').value.trim() : ''}_${new Date().toISOString().slice(0,10)}.${ext}`;
 function saveBlob(blob, name){ const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000); }
 const blobOf = cv => new Promise(res => cv.toBlob(res, 'image/png'));
 $('dlImg').addEventListener('click', async () => {
-  if (!lastCanvas) return;
-  saveBlob(await blobOf(lastCanvas), fname('png'));
+  const pages = prevPages.length ? prevPages : (lastCanvas ? [lastCanvas] : []);
+  const tag = {cmp: '比較表', tour: '帶看路線圖', lvr: '實價登錄', layout: '格局圖比較'}[prevKind] || '比較表';
+  for (const [i, c] of pages.entries()){ saveBlob(await blobOf(c), fname('png').replace('物件比較', tag + (pages.length > 1 ? `-${i + 1}` : ''))); await sleep(300); }
 });
 // ---- PDF 位置地圖頁：用 OpenStreetMap 圖磚畫成一張圖 ----
 const mx = (lon, z) => (lon + 180) / 360 * 256 * 2 ** z;
 const my = (lat, z) => { const r = lat * Math.PI / 180; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 256 * 2 ** z; };
 const loadTile = src => new Promise(res => { const im = new Image(); im.crossOrigin = 'anonymous'; const t = setTimeout(() => res(null), 8000); im.onload = () => { clearTimeout(t); res(im); }; im.onerror = () => { clearTimeout(t); res(null); }; im.src = src; });
-async function drawMapPage(withTiles = true){
+async function drawMapPage(withTiles = true, title = '物件位置地圖'){
   const {tour, items} = mapEntries(), best = null, list = items.map(o => o.p);
   const pts = items.map(({p, n}) => ({p, n})).filter(o => o.p.lat != null && o.p.lng != null);
   if (!pts.length) return null;
@@ -778,7 +926,7 @@ async function drawMapPage(withTiles = true){
   const cv = document.createElement('canvas'); cv.width = W * S; cv.height = H * S;
   const ctx = cv.getContext('2d'); ctx.setTransform(S, 0, 0, S, 0, 0);
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = '#141414'; ctx.font = `700 24px ${FONT}`; ctx.fillText('物件位置地圖', PAD, 46);
+  ctx.fillStyle = '#141414'; ctx.font = `700 24px ${FONT}`; ctx.fillText(title, PAD, 46);
   ctx.font = `400 13px ${FONT}`; ctx.fillStyle = '#6b655e';
   const client = $('client').value.trim(); ctx.fillText((client ? client + ' 您好，以下為比較物件的概略位置' : '比較物件的概略位置') + (tour ? (routeInfo && routeInfo.key === stopsKey(tourStops()) ? `（編號為帶看順序，紅線為開車路線，預估總車程約 ${fmtDur(routeInfo.total)}）` : '（編號為帶看順序，虛線為帶看動線）') : ''), PAD, 72);
   ctx.fillStyle = '#c8371e'; ctx.fillRect(PAD, 82, W - PAD * 2, 3);
@@ -822,53 +970,61 @@ async function drawMapPage(withTiles = true){
     ctx.beginPath(); ctx.arc(x + 10, y - 5, 10, 0, Math.PI * 2); ctx.fillStyle = !has || !n ? '#d2cdc6' : '#c8371e'; ctx.fill();
     ctx.fillStyle = '#fff'; ctx.font = `700 11px ${FONT}`; ctx.textAlign = 'center'; ctx.fillText(n ? String(n) : '–', x + 10, y - 1); ctx.textAlign = 'left';
     ctx.fillStyle = '#141414'; ctx.font = `400 14px ${FONT}`;
-    const label = `${p.title || p.code || '未命名'}${p.community ? '（' + p.community + '）' : ''}${!has ? '　未定位' : !n ? '　不帶看' : ''}`;
+    const lg = tour && n ? legFrom(p) : null;
+    const label = `${p.tourTime ? p.tourTime + ' ' : ''}${p.title || p.code || '未命名'}${p.community ? '（' + p.community + '）' : ''}${!has ? '　未定位' : !n ? '　不帶看' : ''}${lg ? `　→ 下一站約 ${fmtDur(lg.dur)}` : ''}`;
     ctx.fillText(wrap(ctx, label, colW - 40, 1)[0] || '', x + 28, y);
   });
   ctx.fillStyle = '#6b655e'; ctx.font = `400 12px ${FONT}`;
   ctx.fillText('位置依社區名稱或地址搜尋，屬概略位置，實際以現場為準。', PAD, H - 18);
-  try { cv.toDataURL('image/png'); } catch(e){ return withTiles ? drawMapPage(false) : null; }
+  try { cv.toDataURL('image/png'); } catch(e){ return withTiles ? drawMapPage(false, title) : null; }
   return cv;
 }
-$('dlPdf').addEventListener('click', async () => {
-  if (!lastCanvas || !window.jspdf) { $('omsg').textContent = 'PDF 元件沒有載入。'; return; }
+// 下載 PDF（全部）：比較表（填滿 A4 橫式）＋帶看路線圖／位置地圖＋實價登錄＋格局圖比較
+async function buildFullPdf(){
+  if (!window.jspdf){ $('omsg').textContent = 'PDF 元件沒有載入，請重新整理再試。'; return; }
+  if (!props.length){ $('omsg').textContent = '請先加入物件。'; return; }
   try {
-    $('omsg').textContent = '產生 PDF 中…';
-    const {jsPDF} = window.jspdf; const doc = new jsPDF({orientation:'landscape', unit:'mm', format:'a4'});
-    const pw = 297, ph = 210, m = 8;
-    const place = (cv, type) => { const r = Math.min((pw-2*m)/cv.width, (ph-2*m)/cv.height); const w = cv.width*r, h = cv.height*r; doc.addImage(cv.toDataURL(type === 'JPEG' ? 'image/jpeg' : 'image/png', .92), type, (pw-w)/2, m, w, h); };
-    place(lastCanvas, 'JPEG');
-    const mp = await drawMapPage();
-    if (mp){ doc.addPage('a4', 'landscape'); place(mp, 'JPEG'); }
+    $('omsg').textContent = '產生 PDF 中（比較表）…';
+    await loadFonts();
+    const {jsPDF} = window.jspdf; let doc = null; const done = [];
+    const place = cv => {
+      const land = cv.width >= cv.height, pw = land ? 297 : 210, ph = land ? 210 : 297, m = 6;
+      if (!doc) doc = new jsPDF({orientation: land ? 'landscape' : 'portrait', unit: 'mm', format: 'a4'}); else doc.addPage('a4', land ? 'landscape' : 'portrait');
+      const r = Math.min((pw - 2 * m) / cv.width, (ph - 2 * m) / cv.height), w = cv.width * r, h = cv.height * r;
+      doc.addImage(cv.toDataURL('image/jpeg', .92), 'JPEG', (pw - w) / 2, (ph - h) / 2, w, h);
+    };
+    place(drawImage({cv: document.createElement('canvas'), fill: 198 / 285})); done.push('比較表');
+    $('omsg').textContent = '產生 PDF 中（帶看路線圖）…';
+    const tour = !$('tour').hidden; if (tour) await waitRoute();
+    const mp = await drawMapPage(true, tour ? '帶看路線圖' : '物件位置地圖');
+    if (mp){ place(mp); done.push(tour ? '帶看路線圖' : '位置地圖'); }
+    $('omsg').textContent = '產生 PDF 中（實價登錄）…';
+    if (!$('lvrSec').hidden){ await waitLvr(); const lp = drawLvrPages(); lp.forEach(place); if (lp.length) done.push(`實價登錄 ${lp.length} 頁`); }
+    $('omsg').textContent = '產生 PDF 中（格局圖）…';
+    const lay = await drawLayoutPage(); if (lay){ place(lay); done.push('格局圖比較'); }
     saveBlob(doc.output('blob'), fname('pdf'));
-    $('omsg').textContent = mp ? 'PDF 已下載（第 2 頁為位置地圖）。' : 'PDF 已下載。物件都還沒定位，所以沒有附地圖頁。';
-  } catch(e){ $('omsg').textContent = '沒有下載成功，請再試一次。'; }
-});
+    $('omsg').textContent = `PDF 已下載：${done.join('、')}。`;
+  } catch(e){ console.error(e); $('omsg').textContent = '沒有下載成功，請再試一次。'; }
+}
+$('dlPdf').addEventListener('click', buildFullPdf);
 $('cpImg').addEventListener('click', async () => {
   try { await navigator.clipboard.write([new ClipboardItem({'image/png': blobOf(lastCanvas)})]); $('omsg').textContent = '圖片已複製，可以直接貼到 LINE。'; }
   catch(e){ $('omsg').textContent = '這個瀏覽器不允許複製圖片，請改用下載圖片。'; }
 });
-$('copyText').addEventListener('click', async () => {
-  const best = null; const client = $('client').value.trim();
-  const lines = [(client ? client + ' 您好，' : '') + ($('note').value.trim() || '以下為您推薦的比較物件'), ''];
-  sorted().forEach((p, i) => {
-    const c = calc(p);
-    lines.push(`${i+1}. ${p.title || p.code}${p.id === best ? '（扣車單價最低）' : ''}`);
-    lines.push(`　${[p.community, p.address, p.layout, p.floor, num(p.age) != null ? p.age + '年' : ''].filter(Boolean).join('｜')}`);
-    lines.push(`　總價 ${fN(num(p.price))} 萬｜${f2(num(p.area))} 坪｜扣車單價 ${c.unit ? f2(c.unit) + ' 萬/坪' : c.why}`);
-    if (p.url) lines.push('　' + p.url);
-  });
-  const who = [$('store').value.trim(), $('agent').value.trim(), $('phone').value.trim()].filter(Boolean).join(' ');
-  if (who) lines.push('', who);
-  try { await navigator.clipboard.writeText(lines.join('\n')); $('omsg').textContent = '文字已複製，可以貼到 LINE。'; }
-  catch(e){ $('omsg').textContent = '無法存取剪貼簿。'; }
+$('copyText').addEventListener('click', async () => { // 複製帶看路線（和帶看路線區的文字相同，含短網址）
+  if (!props.length){ $('omsg').textContent = '請先加入物件。'; return; }
+  if ($('tour').hidden){ $('tour').hidden = false; renderTour(); store.set('pc-tourOpen', true); await waitRoute(); }
+  buildTourText(); await shortenTour();
+  try { await navigator.clipboard.writeText($('tourText').value); $('omsg').textContent = '帶看路線已複製，可以貼到 LINE。'; }
+  catch(e){ $('omsg').textContent = '無法存取剪貼簿，請到帶看路線區手動複製。'; }
 });
 
 // ---- share: mobile share sheet for the image ----
 $('shImg').addEventListener('click', async () => {
   try {
-    const file = new File([await blobOf(lastCanvas)], fname('png'), {type:'image/png'});
-    if (navigator.canShare && navigator.canShare({files:[file]})) await navigator.share({files:[file], title:'物件比較表'});
+    const pages = prevPages.length ? prevPages : [lastCanvas];
+    const files = await Promise.all(pages.map(async (c, i) => new File([await blobOf(c)], fname('png').replace('.png', pages.length > 1 ? `-${i + 1}.png` : '.png'), {type:'image/png'})));
+    if (navigator.canShare && navigator.canShare({files})) await navigator.share({files, title: $('prevTitle').textContent});
     else $('omsg').textContent = '這個瀏覽器不支援直接分享，請改用下載圖片。';
   } catch(e){}
 });
@@ -1146,15 +1302,14 @@ $('copyTour').addEventListener('click', async () => {
 
 // ---- 報告動作按鈕 ----
 const smooth = () => matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
-$('pdfBtn').addEventListener('click', async () => {
+$('pdfBtn').addEventListener('click', buildFullPdf);
+$('tourBtn').addEventListener('click', async () => {
   if (!props.length){ $('omsg').textContent = '請先加入物件。'; return; }
-  await loadFonts();
-  drawImage(); $('dlPdf').click();
-});
-$('tourBtn').addEventListener('click', () => {
-  if (!props.length){ $('omsg').textContent = '請先加入物件。'; return; }
-  $('tour').hidden = false; renderTour(); store.set('pc-tourOpen', true);
-  $('tour').scrollIntoView({behavior: smooth()});
+  $('omsg').textContent = '產生帶看路線圖中…';
+  const cv = await makeTourImage();
+  if (!cv){ $('omsg').textContent = '物件還沒定位，畫不出路線圖。請在地圖或帶看路線確認位置。'; return; }
+  $('omsg').textContent = '';
+  showPreview('tour', '帶看路線圖', '編號為帶看順序、紅線為開車路線、標籤為兩站間車程。要調整順序或時間，請在上方「帶看路線」區修改後再按一次「產生帶看路線圖」。', [cv]);
 });
 // 官網資料：透過 Cloudflare Worker 讀信義官網（worker/sinyi-proxy.js），還沒設定時 FETCH_URL 留空
 const FETCH_URL = 'https://sinyi-proxy.ken29460338.workers.dev/';
@@ -1592,8 +1747,9 @@ function condoTable(p, L, sum){
     </tbody></table></div>
     ${L.length > 8 ? `<button class="s" data-lvrmore="${esc(p.id)}" style="margin-top:6px">${lvrOpen[p.id] ? '收合' : `顯示全部 ${L.length} 筆`}</button>` : ''}`;
 }
-function scheduleLvr(){ clearTimeout(lvrTimer); lvrTimer = setTimeout(renderLvr, 400); }
-async function renderLvr(){
+function scheduleLvr(){ clearTimeout(lvrTimer); lvrTimer = setTimeout(() => { lvrTimer = null; renderLvr(); }, 400); }
+async function renderLvr(){ lvrBusy++; try { await renderLvrInner(); } finally { lvrBusy--; } }
+async function renderLvrInner(){
   const sec = $('lvrSec'); if (!sec || location.hash.startsWith('#d=')) return;
   const list = sorted();
   if (!list.length || isSample){ sec.hidden = true; return; }
