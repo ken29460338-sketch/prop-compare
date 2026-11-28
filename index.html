@@ -265,6 +265,7 @@ button.sec{background:var(--panel);border-color:var(--rule)}
         <textarea id="tourText"></textarea>
         <div class="row" style="margin-top:8px">
           <button class="b" id="copyTour">複製帶看路線</button>
+          <label style="font-size:13px;margin-left:6px;white-space:nowrap" title="把地圖連結換成 prop-compare.pages.dev/s/… 的短網址，客戶點了會跳到原本的 Google 地圖"><input type="checkbox" id="tShort" style="width:auto;vertical-align:-2px"> 縮短網址</label>
           <a id="routeLink" href="#" target="_blank" rel="noopener" style="display:none">在 Google 地圖開啟全程路線</a>
         </div>
         <p class="msg" id="tmsg" role="status" style="margin:6px 0 0"></p>
@@ -1052,10 +1053,31 @@ function buildTourText(){
   const who = [$('store').value.trim(), $('agent').value.trim(), $('phone').value.trim()].filter(Boolean).join(' ');
   if (who) L.push(who);
   $('tourText').value = list.length ? L.join('\n').trim() : '';
+  shortenTour();
   $('routeLink').style.display = route ? '' : 'none'; if (route) $('routeLink').href = route;
   const miss = list.filter(p => !tQuery(p)).length;
   $('tmsg').textContent = miss ? `有 ${miss} 間還沒填社區或地址，地圖連結不會出現。` : '';
 }
+// 縮短網址：地圖長網址換成 prop-compare.pages.dev/s/代碼（中繼服務產生、存 2 年），查過的記在瀏覽器裡
+const shortCache = store.get('pc-short', {});
+async function shortUrl(u){
+  if (shortCache[u]) return shortCache[u];
+  const r = await fetch(FETCH_URL + 's', {method: 'POST', headers: {'content-type': 'text/plain'}, body: u});
+  const j = await r.json(); if (!r.ok || !j.short) throw new Error('short');
+  shortCache[u] = j.short; store.set('pc-short', shortCache); return j.short;
+}
+async function shortenTour(){
+  if (!$('tShort').checked || !FETCH_URL) return;
+  const ta = $('tourText'), base = ta.value;
+  const urls = [...new Set(base.match(/https:\/\/(?:www\.google\.com\/maps|maps\.google\.com)\S+/g) || [])];
+  if (!urls.length) return;
+  const pairs = await Promise.all(urls.map(async u => { try { return [u, await shortUrl(u)]; } catch(e){ return [u, u]; } }));
+  if (ta.value !== base) return; // 這段期間文字又變了（順序調整或手動修改），不覆蓋
+  let t = base; for (const [u, s2] of pairs) t = t.split(u).join(s2);
+  ta.value = t;
+}
+$('tShort').checked = store.get('pc-tShort', true);
+$('tShort').addEventListener('change', () => { store.set('pc-tShort', $('tShort').checked); buildTourText(); });
 $('tlist').addEventListener('input', e => {
   const i = e.target.closest('input[data-t]'); if (!i || i.type === 'checkbox') return;
   const p = props.find(q => q.id === i.closest('.ti').dataset.id); p[i.dataset.t] = i.value; isSample = false; save(); buildTourText(); if (i.dataset.t === 'tourTime') scheduleRoute();
