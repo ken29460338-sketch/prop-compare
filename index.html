@@ -369,11 +369,11 @@ const ROWS = [
   {k:'memo', l:'備註', f:['memo'], icon:'note', show:p => p.memo || ''},
   {k:'total', l:'總價／平均單價', f:['price','parkType','parkArea','parkPrice'], icon:'coins', strong:1,
     show:p => { if (!num(p.price)) return ''; if (isLandType(p)){ const u = landUnitOf(p); return `${fN(num(p.price))}萬／約${u ? f2(u) : '—'}萬/坪`; } const c = calc(p); return `${fN(num(p.price))}萬／約${c.withPark ? f2(c.withPark) : '—'}萬/坪`; },
-    sub:p => { if (!num(p.price)) return ''; if (isLandType(p)) return landUnitOf(p) ? (landKind(p) === 'house' ? '地坪單價＝總價÷土地坪數（含建物價值）' : '地坪單價＝總價÷土地坪數') : '地坪單價：請填土地坪數'; const c = calc(p); return c.unit ? `約${f2(c.unit)}萬/坪（扣車位）` : `扣車單價：${c.why}`; }}
+    sub:p => { if (!num(p.price)) return ''; if (isLandType(p)) return landUnitOf(p) ? '此為（地坪單價）' : '地坪單價：請填土地坪數'; const c = calc(p); return c.unit ? `約${f2(c.unit)}萬/坪（扣車位）` : `扣車單價：${c.why}`; }}
 ];
 // 透天、土地：總價列改顯示地坪單價（總價÷土地坪數），不算扣車單價
 function landKind(p){ try { return catOf(p); } catch(e){ return ''; } }
-const isLandType = p => ['house', 'land'].includes(landKind(p));
+const isLandType = p => ['house', 'shop', 'land'].includes(landKind(p)); // 透天／別墅、店面、土地：看土地坪數
 const landUnitOf = p => num(p.landUnit) != null ? num(p.landUnit) : (num(p.price) && num(p.landArea) ? num(p.price) / num(p.landArea) : null);
 // 線條小圖示（24×24 座標），網頁表格與比較圖共用
 const ICONS = {
@@ -1628,7 +1628,7 @@ function lvrWindow(hit){
   return {list: hit, label: '全部（近年成交太少，已往前拉）'};
 }
 // 房屋類型（對應實價登錄的建物型態）：比較表「房屋類型」有填就用它；沒填依標題、樓高、坪數自動判斷
-const LVR_CAT = {tower: '住宅大樓', mansion: '華廈', apt: '公寓', house: '透天', shop: '店面', office: '辦公大樓', suite: '套房', land: '土地'};
+const LVR_CAT = {tower: '住宅大樓', mansion: '華廈', apt: '公寓', house: '透天／別墅', shop: '店面', office: '辦公大樓', suite: '套房', land: '土地'};
 const CAT_RE = {tower: /住宅大樓/, mansion: /華廈/, apt: /公寓/, house: /透天/, shop: /店面/, office: /辦公/, suite: /套房/};
 function catFromLabel(t){
   t = String(t || '').trim(); if (!t) return '';
@@ -1672,6 +1672,11 @@ async function lvrLandLike(p, cat, idx){
   const a = splitAddr(p.tourAddr || p.address), road = normRoad(a.road);
   let town = a.dist && idx.towns[a.dist] ? a.dist : (road && Object.keys(idx.towns).find(t => idx.towns[t].includes(road))) || a.dist;
   if (!town) return {msg: '沒有行政區，查不到行情。請補上地址（例：台中市南屯區…）。'};
+  if (cat === 'shop'){ // 店面：同路段店面（沒有整區店面檔，案例不足時建議改看周遭範圍）
+    const same = road && (idx.towns[town] || []).includes(road) ? (await lvrRoad(town, road)).filter(r => /店面/.test(r[7])) : [];
+    const w = lvrSpanPick(same, 3);
+    return {rows: w.list.map(r => ({road, r})), label: w.label, scope: `同路段（${road || '—'}）店面${w.list.length < 3 ? '；案例較少，可改用「物件周遭」範圍看附近店面' : ''}`, town};
+  }
   if (cat === 'house'){
     const same = road && (idx.towns[town] || []).includes(road) ? (await lvrRoad(town, road)).filter(r => /透天/.test(r[7])).map(r => ({road, r})) : [];
     const w = lvrSpanPick(same.map(x => x.r), 3);
@@ -1693,15 +1698,15 @@ function landTable(p, cat, res){
   const rel = L.filter(x => isRel(x.r)).length, LN = rel < L.length ? L.filter(x => !isRel(x.r)) : L;
   const lp = LN.map(x => landPing(x.r)), units = LN.map((x, i) => lp[i] ? x.r[8] / lp[i] : null).filter(v => v);
   const avg = units.length ? units.reduce((a, b) => a + b, 0) / units.length : null;
-  const mine = num(p.landArea), tag = cat === 'house' ? '<br><small>（含建物價值）</small>' : '';
+  const mine = num(p.landArea), tag = cat !== 'land' ? '<br><small>（含建物價值）</small>' : '';
   const cells = x => { const r = x.r, pg = landPing(r), u = pg ? r[8] / pg : null;
-    return `<td>${lvrDate(r[0])}</td><td class="l">${esc((x.road || '') + r[1])}${noteTag(r)}${relTag(r)}${distTag(x)}</td>${cat === 'house' ? `<td>${esc(commOf(p, x)) || '<span class="msg">—</span>'}</td>` : ''}<td>${r[8].toLocaleString()}</td><td>${pg ? f2(pg) : '<span class="nt" title="這筆交易沒有完整的土地移轉面積">資料不足</span>'}</td><td>${u ? '<b>' + f2(u) + '</b>' : '<span class="nt">資料不足</span>'}</td>` +
-      (cat === 'house' ? `<td>${f2(r[11])}</td><td>${esc(r[15])}</td><td>${r[13] != null ? r[13] : '—'}</td><td>${r[6] || '—'}</td><td>${r[16] ? esc(r[16]) : '—'}</td>` : `<td>${esc(r[24] || '—')}</td><td class="l">${esc(r[18] || '')}</td>`); };
-  const head = cat === 'house'
+    return `<td>${lvrDate(r[0])}</td><td class="l">${esc((x.road || '') + r[1])}${noteTag(r)}${relTag(r)}${distTag(x)}</td>${cat !== 'land' ? `<td>${esc(commOf(p, x)) || '<span class="msg">—</span>'}</td>` : ''}<td>${r[8].toLocaleString()}</td><td>${pg ? f2(pg) : '<span class="nt" title="這筆交易沒有完整的土地移轉面積">資料不足</span>'}</td><td>${u ? '<b>' + f2(u) + '</b>' : '<span class="nt">資料不足</span>'}</td>` +
+      (cat !== 'land' ? `<td>${f2(r[11])}</td><td>${esc(r[15])}</td><td>${r[13] != null ? r[13] : '—'}</td><td>${r[6] || '—'}</td><td>${r[16] ? esc(r[16]) : '—'}</td>` : `<td>${esc(r[24] || '—')}</td><td class="l">${esc(r[18] || '')}</td>`); };
+  const head = cat !== 'land'
     ? `<th>交易日期</th><th>門牌</th><th>社區名稱</th><th>總價(萬)</th><th>土地總坪數</th><th>地坪單價(萬/坪)${tag}</th><th>建物坪數</th><th>格局</th><th>屋齡</th><th>樓高</th><th>車位</th>`
     : `<th>交易日期</th><th>地段地號</th><th>總價(萬)</th><th>土地總坪數</th><th>地坪單價(萬/坪)</th><th>使用分區</th><th>備註</th>`;
   const zsel = res.zones ? `<p class="msg" style="margin:0 0 6px">使用分區：<select data-lvrzone="${esc(p.id)}" style="width:auto;font-size:13px;padding:2px 6px"><option value="">全部（不建議直接看平均）</option>${res.zones.map(([k, n]) => `<option value="${esc(k)}" ${k === res.zone ? 'selected' : ''}>${esc(k)}（${n}）</option>`).join('')}</select>　實價登錄的土地只有地段地號、沒有路名，所以以同區域比較；請選和本物件相同的使用分區。</p>` : '';
-  return `${zsel}<p class="sumline">${esc(res.scope)}｜${res.label} ${L.length} 筆，平均地坪單價 <b>${avg ? f2(avg) : '—'}</b> 萬/坪${cat === 'house' ? '（含建物價值）' : ''}${units.length < LN.length ? `（${LN.length - units.length} 筆土地資料不足，不列入平均）` : ''}${rel && LN !== L ? `｜<span style="color:#c8371e">已排除 ${rel} 筆特殊關係交易（紅底）不列入平均</span>` : ''}${mine ? `｜本物件土地 ${f2(mine)} 坪` : ''}</p>
+  return `${zsel}<p class="sumline">${esc(res.scope)}｜${res.label} ${L.length} 筆，平均地坪單價 <b>${avg ? f2(avg) : '—'}</b> 萬/坪${cat !== 'land' ? '（含建物價值）' : ''}${units.length < LN.length ? `（${LN.length - units.length} 筆土地資料不足，不列入平均）` : ''}${rel && LN !== L ? `｜<span style="color:#c8371e">已排除 ${rel} 筆特殊關係交易（紅底）不列入平均</span>` : ''}${mine ? `｜本物件土地 ${f2(mine)} 坪` : ''}</p>
     <div class="scroll"><table><thead><tr>${head}</tr></thead><tbody>${show.map(x => `<tr class="${isRel(x.r) ? 'rel' : ''}">${cells(x)}</tr>`).join('')}</tbody></table></div>
     ${L.length > 8 ? `<button class="s" data-lvrmore="${esc(p.id)}" style="margin-top:6px">${lvrOpen[p.id] ? '收合' : `顯示全部 ${L.length} 筆`}</button>` : ''}`;
 }
@@ -1817,11 +1822,11 @@ async function renderLvrInner(){
       const res = await lvrRadius(p, cat, idx, +lvrScope, run);
       if (res.stale || run !== lvrRun) return;
       const body = res.msg ? `<p class="msg">${esc(res.msg)}</p>` : !res.rows.length ? `<p class="msg">${esc(res.scope)}：${res.label}查無成交，可以改看較長的期間。</p>`
-        : cat === 'house' ? landTable(p, cat, res) : condoTable(p, res.rows, `${res.scope}｜${res.label} ${res.rows.length} 筆`);
+        : (cat === 'house' || cat === 'shop') ? landTable(p, cat, res) : condoTable(p, res.rows, `${res.scope}｜${res.label} ${res.rows.length} 筆`);
       out.push(`<div class="blk"><h3>${i + 1}. ${name}</h3>${body}${res.short ? '<p class="msg">附近道路很多，這次只推估了一部分，再按一次範圍按鈕可以補齊。</p>' : ''}</div>`);
       continue;
     }
-    if (cat === 'house' || cat === 'land'){
+    if (cat === 'house' || cat === 'shop' || cat === 'land'){
       const res = await lvrLandLike(p, cat, idx);
       if (run !== lvrRun) return;
       out.push(`<div class="blk"><h3>${i + 1}. ${name}</h3>${res.msg ? `<p class="msg">${esc(res.msg)}</p>` : res.rows.length ? landTable(p, cat, res) : `<p class="msg">${esc(res.scope)}：${res.label}查無成交。</p>`}</div>`);
