@@ -285,7 +285,7 @@ button.sec{background:var(--panel);border-color:var(--rule)}
       </div>
       <div style="margin-top:10px"><label class="lab" for="note">備註</label><input id="note" placeholder="以下為您推薦的比較物件"></div>
       <div class="row" style="margin-top:12px">
-        <button class="act" id="shareLink">🔗 產生分享連結</button>
+        <button class="act" id="shareLink" hidden>🔗 產生分享連結</button>
         <button class="act" id="pdfBtn">📄 下載 PDF</button>
         <button class="act" id="mkImg">🖼 產生比較圖</button>
         <button class="act" id="tourBtn">🚗 帶看路線</button>
@@ -359,7 +359,7 @@ const ROWS = [
     let s = t.replace(/車位$/, '') + (p.parkNo ? ' ' + p.parkNo : '');
     const bits = [num(p.parkArea) ? `${nf(num(p.parkArea))}坪` : '', num(p.parkPrice) ? `${fN(num(p.parkPrice))}萬${p.parkEst ? '（估）' : ''}` : ''].filter(Boolean);
     return bits.length ? `${s}，${bits.join('／')}` : s; }},
-  {k:'mgmt', l:'警衛管理／管理費', f:['guard','mgmtFee'], icon:'shield', show:p => [p.guard, num(p.mgmtFee) ? `約${fN(num(p.mgmtFee))}元/月` : ''].filter(Boolean).join(' / ')},
+  {k:'mgmt', l:'警衛／管理費', f:['guard','mgmtFee'], icon:'shield', show:p => [p.guard, num(p.mgmtFee) ? `約${fN(num(p.mgmtFee))}元/月` : ''].filter(Boolean).join(' / ')},
   {k:'direction', l:'朝向', f:['direction'], icon:'compass', show:p => p.direction || ''},
   {k:'memo', l:'備註', f:['memo'], icon:'note', show:p => p.memo || ''},
   {k:'total', l:'總價／平均單價', f:['price','parkType','parkArea','parkPrice'], icon:'coins', strong:1,
