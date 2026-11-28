@@ -1635,7 +1635,7 @@ const CAT_RE = {tower: /住宅大樓/, mansion: /華廈/, apt: /公寓/, house: 
 function catFromLabel(t){
   t = String(t || '').trim(); if (!t) return '';
   if (/土地|建地|農地/.test(t)) return 'land';
-  if (/店面|店鋪|店舖/.test(t)) return /透天|樓店|店住|整棟/.test(t) ? 'shoph' : /大樓|華廈|社區/.test(t) ? 'shop' : ''; // 要先判斷店面，「店面（透天）」才不會被當成透天
+  if (/店面|店鋪|店舖/.test(t)) return /大樓|華廈|社區/.test(t) ? 'shop' : /透天|樓店|店住|整棟/.test(t) ? 'shoph' : ''; // 要先判斷店面，「店面（透天）」才不會被當成透天
   if (/透天|別墅/.test(t)) return 'house';
   if (/辦公|商辦/.test(t)) return 'office';
   if (/套房/.test(t)) return 'suite';
