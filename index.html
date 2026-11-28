@@ -147,11 +147,12 @@ button.sec{background:var(--panel);border-color:var(--rule)}
 #tbl thead th .msg{color:#e4eadc}
 #tbl tbody tr:last-child td,#tbl tbody tr:last-child th{border-bottom:0;border-radius:0 0 12px 12px}
 #tbl .rowh{position:sticky;left:0;z-index:1;min-width:190px;max-width:220px;font-weight:400;color:#3f3f38;white-space:nowrap}
-#tbl tbody .rowh{display:table-cell}
+#tbl tbody .rowh{display:table-cell;font-size:18px}
+#tbl tbody .rowh .x{font-size:14px}
 #tbl .rowh .ic{width:22px;height:22px;vertical-align:-5px;margin-right:10px;fill:none;stroke:#8a9a7c;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
 #tbl thead .rowh{z-index:2;color:#fff;font-weight:500}
-#tbl td{min-width:230px;cursor:pointer;text-align:center;font-size:calc(16px * var(--fs,1.15))}
-#tbl td .sb{font-size:calc(14px * var(--fs,1.15))}
+#tbl td{min-width:230px;cursor:pointer;text-align:center;font-size:calc(16px * var(--fs,1.3))}
+#tbl td .sb{font-size:calc(14px * var(--fs,1.3))}
 #tbl td:hover{background:#f7f3ea}
 #tbl .mn{display:block}
 #tbl .sb{display:block;font-size:14px;color:#5d5a50}
@@ -349,7 +350,7 @@ const ROWS = [
     return v != null ? `約${f2(v)}萬/坪` : ''; }},
   {k:'road', l:'門前道路寬', f:['roadWidth'], icon:'road', show:p => { const t = String(p.roadWidth ?? '').trim(); return !t ? '' : /^[\d.]+$/.test(t) ? `${t}米` : t; }},
   {k:'layout', l:'格局', f:['layout'], icon:'sofa', show:p => p.layout || ''},
-  {k:'age', l:'建築完成日／屋齡', f:['builtDate','age'], icon:'cal', show:p => [p.builtDate, num(p.age) != null ? `${nf(num(p.age))}年` : ''].filter(Boolean).join(' / ')},
+  {k:'age', l:'屋齡', f:['age'], icon:'cal', show:p => num(p.age) != null ? `${nf(num(p.age))}年` : ''},
   {k:'floor', l:'樓層', f:['floor'], icon:'bldg', show:p => String(p.floor || '').replace(/\s*[\/／]\s*/g, ' / ')},
   {k:'upf', l:'該層戶數', f:['unitsPerFloor','elevators'], icon:'people', show:p => [num(p.unitsPerFloor) != null ? `${nf(num(p.unitsPerFloor))}戶` : '', num(p.elevators) != null ? `${nf(num(p.elevators))}部電梯` : ''].filter(Boolean).join(' / ')},
   {k:'units', l:'總戶數', f:['units'], icon:'group', show:p => num(p.units) != null ? `${nf(num(p.units))}戶` : ''},
@@ -395,13 +396,15 @@ const SAMPLE = [
   {id:'s3',code:'範例3',title:'近捷運兩房免車位',address:'台中市南屯區文心南路',price:1320,area:32.4,age:9,floor:'5樓/14樓',layout:'2房2廳1衛',parkType:'無',mgmtFee:1600}
 ];
 
-let props = store.get('pc-props', null);
+// 物件清單只存在這個分頁（sessionStorage）：重新整理還在，新開網頁就是空白，同仁自己貼要比較的物件
+const sess = { get(k,d){ try{ const v=sessionStorage.getItem(k); return v?JSON.parse(v):d }catch(e){ return d } }, set(k,v){ try{ sessionStorage.setItem(k,JSON.stringify(v)) }catch(e){} } };
+try { localStorage.removeItem('pc-props'); } catch(e){} // 舊版存在 localStorage 的清單不再使用
+let props = sess.get('pc-props', []);
 let isSample = false;
-if (!props || !props.length) { props = SAMPLE.map(p => ({...p})); isSample = true; }
 let hide = store.get('pc-hide3', DEFAULT_HIDE);
 if (!store.get('pc-hideV4', false)){ hide = [...new Set([...hide, 'land', 'landUnit', 'road'])]; store.set('pc-hide3', hide); store.set('pc-hideV4', true); }
 let sortKey = 'unit', sortAsc = true;
-let fontScale = store.get('pc-fs', 1.15); // 比較表內容字體倍率（總價列不受影響）
+let fontScale = store.get('pc-fs', 1.3); // 比較表內容字體倍率（總價列不受影響）
 let lastCanvas = null, replaceMode = false;
 
 function calc(p){
@@ -450,7 +453,7 @@ function parseText(t){
   return out;
 }
 
-function save(){ if (!isSample) store.set('pc-props', props); }
+function save(){ if (!isSample) sess.set('pc-props', props); }
 
 // ---- render ----
 function visibleRows(){ return ROWS.filter(r => !hide.includes(r.k)); }
@@ -691,7 +694,7 @@ function drawImage(){
   rows.forEach((r, ri) => {
     const h = rh(r);
     drawIcon(ctx, r.icon, PAD + 28, y + h / 2 - 15, 30, '#8a9a7c');
-    ctx.fillStyle = INK; ctx.font = `400 ${Math.round(23 * Math.min(fontScale, 1.15))}px ${FONT}`; ctx.fillText(r.l, PAD + 80, y + h / 2 + 8);
+    ctx.fillStyle = INK; ctx.font = `400 28px ${FONT}`; ctx.fillText(r.l, PAD + 80, y + h / 2 + 9);
     cols.slice(1).forEach(c => {
       const p = c.p;
       if (r.k === 'total'){
