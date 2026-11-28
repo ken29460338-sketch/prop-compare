@@ -336,7 +336,7 @@ const FIELD = {
   layout:{l:'格局',ph:'3房2廳2衛'}, builtDate:{l:'完成日',ph:'2016/05'}, age:{l:'屋齡(年)',n:1}, floor:{l:'樓層',ph:'8樓/12樓'},
   unitsPerFloor:{l:'該層戶數',n:1}, units:{l:'總戶數',n:1}, parkType:{l:'車位類型',ph:'坡道平面／無'}, parkArea:{l:'車位坪數',n:1},
   parkPrice:{l:'車位價(萬)',n:1}, parkNo:{l:'車位編號',ph:'B2-68、B2-69'}, landArea:{l:'土地坪數',n:1}, landUnit:{l:'地坪單價(萬)',n:1,ph:'空白＝自動計算'}, roadWidth:{l:'路寬',ph:'8米'}, elevators:{l:'電梯(部)',n:1}, guard:{l:'警衛',ph:'全天候'}, mgmtFee:{l:'管理費(元/月)',n:1}, address:{l:'地址'},
-  direction:{l:'朝向'}, memo:{l:'備註'}, price:{l:'總價(萬)',n:1}, ptype:{l:'房屋類型',ph:'住宅大樓／華廈／公寓／透天／店面／辦公大樓／套房／土地'}
+  direction:{l:'朝向'}, memo:{l:'備註'}, price:{l:'總價(萬)',n:1}, ptype:{l:'房屋類型',ph:'住宅大樓／華廈／公寓／透天／店面（大樓）／店面（透天）／辦公大樓／套房／土地'}
 };
 const nf = v => String(Math.round(v * 100) / 100);
 // 每列：show 主要文字，sub 第二行（可省略），icon 對應左側小圖示
@@ -353,7 +353,7 @@ const ROWS = [
     const v = num(p.landUnit) != null ? num(p.landUnit) : (num(p.price) && num(p.landArea) ? num(p.price) / num(p.landArea) : null);
     return v != null ? `約${f2(v)}萬/坪` : ''; }},
   {k:'road', l:'門前道路寬', f:['roadWidth'], icon:'road', show:p => { const t = String(p.roadWidth ?? '').trim(); return !t ? '' : /^[\d.]+$/.test(t) ? `${t}米` : t; }},
-  {k:'ptype', l:'房屋類型', f:['ptype'], icon:'bldg', show:p => { try { return p.ptype && catFromLabel(p.ptype) ? LVR_CAT[catFromLabel(p.ptype)] : `${LVR_CAT[autoCat(p)]}（自動判斷）`; } catch(e){ return p.ptype || ''; } }},
+  {k:'ptype', l:'房屋類型', f:['ptype'], icon:'bldg', show:p => { try { if (p.ptype && catFromLabel(p.ptype)) return LVR_CAT[catFromLabel(p.ptype)]; const c = catOf(p), unsure = (c === 'shop' || c === 'shoph') && !shopGuess(p).sure; return `${LVR_CAT[c]}（${unsure ? '無法確定，請點此選大樓店面或透天店面' : '自動判斷'}）`; } catch(e){ return p.ptype || ''; } }},
   {k:'layout', l:'格局', f:['layout'], icon:'sofa', show:p => p.layout || ''},
   {k:'age', l:'屋齡', f:['age'], icon:'cal', show:p => num(p.age) != null ? `${nf(num(p.age))}年` : ''},
   {k:'floor', l:'樓層', f:['floor'], icon:'bldg', show:p => String(p.floor || '').replace(/\s*[\/／]\s*/g, ' / ')},
@@ -369,11 +369,13 @@ const ROWS = [
   {k:'memo', l:'備註', f:['memo'], icon:'note', show:p => p.memo || ''},
   {k:'total', l:'總價／平均單價', f:['price','parkType','parkArea','parkPrice'], icon:'coins', strong:1,
     show:p => { if (!num(p.price)) return ''; if (isLandType(p)){ const u = landUnitOf(p); return `${fN(num(p.price))}萬／約${u ? f2(u) : '—'}萬/坪`; } const c = calc(p); return `${fN(num(p.price))}萬／約${c.withPark ? f2(c.withPark) : '—'}萬/坪`; },
-    sub:p => { if (!num(p.price)) return ''; if (isLandType(p)) return landUnitOf(p) ? '此為（地坪單價）' : '地坪單價：請填土地坪數'; const c = calc(p); return c.unit ? `約${f2(c.unit)}萬/坪（扣車位）` : `扣車單價：${c.why}`; }}
+    sub:p => { if (!num(p.price)) return ''; const k = landKind(p), unsure = (k === 'shop' || k === 'shoph') && !(p.ptype && catFromLabel(p.ptype)) && !shopGuess(p).sure;
+      if (isLandType(p)) return (landUnitOf(p) ? '此為（地坪單價）' : '地坪單價：請填土地坪數') + (unsure ? '｜店面類型待確認' : '');
+      if (unsure) { const c0 = calc(p); return (c0.unit ? `約${f2(c0.unit)}萬/坪（扣車位）` : '此為（建坪單價）') + '｜店面類型待確認'; } const c = calc(p); return c.unit ? `約${f2(c.unit)}萬/坪（扣車位）` : `扣車單價：${c.why}`; }}
 ];
 // 透天、土地：總價列改顯示地坪單價（總價÷土地坪數），不算扣車單價
 function landKind(p){ try { return catOf(p); } catch(e){ return ''; } }
-const isLandType = p => ['house', 'shop', 'land'].includes(landKind(p)); // 透天／別墅、店面、土地：看土地坪數
+const isLandType = p => ['house', 'shoph', 'land'].includes(landKind(p)); // 透天／別墅、透天店面、土地：看土地坪數；大樓店面照建坪單價
 const landUnitOf = p => num(p.landUnit) != null ? num(p.landUnit) : (num(p.price) && num(p.landArea) ? num(p.price) / num(p.landArea) : null);
 // 線條小圖示（24×24 座標），網頁表格與比較圖共用
 const ICONS = {
@@ -1628,13 +1630,13 @@ function lvrWindow(hit){
   return {list: hit, label: '全部（近年成交太少，已往前拉）'};
 }
 // 房屋類型（對應實價登錄的建物型態）：比較表「房屋類型」有填就用它；沒填依標題、樓高、坪數自動判斷
-const LVR_CAT = {tower: '住宅大樓', mansion: '華廈', apt: '公寓', house: '透天／別墅', shop: '店面', office: '辦公大樓', suite: '套房', land: '土地'};
-const CAT_RE = {tower: /住宅大樓/, mansion: /華廈/, apt: /公寓/, house: /透天/, shop: /店面/, office: /辦公/, suite: /套房/};
+const LVR_CAT = {tower: '住宅大樓', mansion: '華廈', apt: '公寓', house: '透天／別墅', shop: '店面（大樓）', shoph: '店面（透天）', office: '辦公大樓', suite: '套房', land: '土地'};
+const CAT_RE = {tower: /住宅大樓/, mansion: /華廈/, apt: /公寓/, house: /透天/, shop: /店面/, shoph: /店面/, office: /辦公/, suite: /套房/};
 function catFromLabel(t){
   t = String(t || '').trim(); if (!t) return '';
   if (/土地|建地|農地/.test(t)) return 'land';
+  if (/店面|店鋪|店舖/.test(t)) return /透天|樓店|店住|整棟/.test(t) ? 'shoph' : /大樓|華廈|社區/.test(t) ? 'shop' : ''; // 要先判斷店面，「店面（透天）」才不會被當成透天
   if (/透天|別墅/.test(t)) return 'house';
-  if (/店面|店鋪|店舖/.test(t)) return 'shop';
   if (/辦公|商辦/.test(t)) return 'office';
   if (/套房/.test(t)) return 'suite';
   if (/華廈/.test(t)) return 'mansion';
@@ -1648,7 +1650,7 @@ function autoCat(p){
   if (/透天|別墅|樓店|店住|農舍|整棟/.test(t) || /[~～\-全]|整棟/.test(fl.split('/')[0])) return 'house';
   const floors = +((fl.match(/\/\s*(\d+)/) || [])[1] || 0);
   if (num(p.landArea) >= 15 && floors && floors <= 5 && !p.community) return 'house';
-  if (/店面|店鋪|金店|商店/.test(t)) return 'shop';
+  if (/店面|店鋪|金店|商店/.test(t)) return shopGuess(p).cat;
   if (/辦公|商辦|寫字樓/.test(t)) return 'office';
   if (/套房/.test(t) || (/^1房/.test(p.layout || '') && num(p.area) && num(p.area) <= 20)) return 'suite';
   if (floors >= 11) return 'tower';
@@ -1656,7 +1658,15 @@ function autoCat(p){
   if (floors) return num(p.elevators) > 0 || /電梯/.test(t) ? 'mansion' : 'apt'; // 5 樓以下多半沒電梯＝公寓
   return 'tower';
 }
-const catOf = p => catFromLabel(p.ptype) || ({condo: 'tower'}[p.lvrCat] || p.lvrCat) || autoCat(p);
+// 店面分兩種：大樓店面照建坪單價、透天店面照地坪單價；判斷不出來時先當大樓店面，並請使用者在「房屋類型」確認
+function shopGuess(p){
+  const t = `${p.title || ''}`, fl = String(p.floor || ''), floors = +((fl.match(/\/\s*(\d+)/) || [])[1] || 0);
+  if (/透天|樓店|店住|整棟/.test(t) || /[~～\-全]|整棟/.test(fl.split('/')[0])) return {cat: 'shoph', sure: true};
+  if (floors >= 6 || p.community) return {cat: 'shop', sure: true};
+  if (floors && floors <= 5 && num(p.landArea) >= 10) return {cat: 'shoph', sure: false};
+  return {cat: 'shop', sure: false};
+}
+const catOf = p => catFromLabel(p.ptype) || (/店面|店鋪/.test(p.ptype || '') ? shopGuess(p).cat : '') || ({condo: 'tower'}[p.lvrCat] || p.lvrCat) || autoCat(p);
 const lvrCat = catOf;
 async function lvrFile(town, name){ return lvrRoad(town, name); }
 const landPing = r => r[22] ? r[22] * 0.3025 : null; // ㎡→坪（先用未四捨五入的坪數算單價）
@@ -1672,10 +1682,10 @@ async function lvrLandLike(p, cat, idx){
   const a = splitAddr(p.tourAddr || p.address), road = normRoad(a.road);
   let town = a.dist && idx.towns[a.dist] ? a.dist : (road && Object.keys(idx.towns).find(t => idx.towns[t].includes(road))) || a.dist;
   if (!town) return {msg: '沒有行政區，查不到行情。請補上地址（例：台中市南屯區…）。'};
-  if (cat === 'shop'){ // 店面：同路段店面（沒有整區店面檔，案例不足時建議改看周遭範圍）
+  if (cat === 'shoph'){ // 透天店面：同路段店面（沒有整區店面檔，案例不足時建議改看周遭範圍）
     const same = road && (idx.towns[town] || []).includes(road) ? (await lvrRoad(town, road)).filter(r => /店面/.test(r[7])) : [];
     const w = lvrSpanPick(same, 3);
-    return {rows: w.list.map(r => ({road, r})), label: w.label, scope: `同路段（${road || '—'}）店面${w.list.length < 3 ? '；案例較少，可改用「物件周遭」範圍看附近店面' : ''}`, town};
+    return {rows: w.list.map(r => ({road, r})), label: w.label, scope: `同路段（${road || '—'}）店面（依地坪單價比較）${w.list.length < 3 ? '；案例較少，可改用「物件周遭」範圍看附近店面' : ''}`, town};
   }
   if (cat === 'house'){
     const same = road && (idx.towns[town] || []).includes(road) ? (await lvrRoad(town, road)).filter(r => /透天/.test(r[7])).map(r => ({road, r})) : [];
@@ -1822,11 +1832,11 @@ async function renderLvrInner(){
       const res = await lvrRadius(p, cat, idx, +lvrScope, run);
       if (res.stale || run !== lvrRun) return;
       const body = res.msg ? `<p class="msg">${esc(res.msg)}</p>` : !res.rows.length ? `<p class="msg">${esc(res.scope)}：${res.label}查無成交，可以改看較長的期間。</p>`
-        : (cat === 'house' || cat === 'shop') ? landTable(p, cat, res) : condoTable(p, res.rows, `${res.scope}｜${res.label} ${res.rows.length} 筆`);
+        : (cat === 'house' || cat === 'shoph') ? landTable(p, cat, res) : condoTable(p, res.rows, `${res.scope}｜${res.label} ${res.rows.length} 筆`);
       out.push(`<div class="blk"><h3>${i + 1}. ${name}</h3>${body}${res.short ? '<p class="msg">附近道路很多，這次只推估了一部分，再按一次範圍按鈕可以補齊。</p>' : ''}</div>`);
       continue;
     }
-    if (cat === 'house' || cat === 'shop' || cat === 'land'){
+    if (cat === 'house' || cat === 'shoph' || cat === 'land'){
       const res = await lvrLandLike(p, cat, idx);
       if (run !== lvrRun) return;
       out.push(`<div class="blk"><h3>${i + 1}. ${name}</h3>${res.msg ? `<p class="msg">${esc(res.msg)}</p>` : res.rows.length ? landTable(p, cat, res) : `<p class="msg">${esc(res.scope)}：${res.label}查無成交。</p>`}</div>`);
