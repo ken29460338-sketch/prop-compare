@@ -296,6 +296,16 @@ button.sec{background:var(--panel);border-color:var(--rule)}
         <button class="sec" id="reBtn">🔄 重新分析</button>
       </div>
       <p class="msg" id="omsg" role="status" style="margin:8px 0 0"></p>
+      <details id="gUse" style="margin-top:12px;border-top:1px dashed var(--rule);padding-top:10px">
+        <summary style="cursor:pointer;font-size:14px" id="gUseSum">Google 用量：讀取中…</summary>
+        <div id="gUseBody" class="msg" style="margin:8px 0 6px;line-height:1.8"></div>
+        <div class="row" style="gap:10px;align-items:center;flex-wrap:wrap">
+          <label style="font-size:14px">車程每日上限 <input id="gRouteMax" type="number" min="0" max="400" step="10" style="width:90px"> 次</label>
+          <label style="font-size:14px">定位每日上限 <input id="gGeoMax" type="number" min="0" max="3000" step="100" style="width:100px"> 次</label>
+          <button class="sec" id="gSave">儲存上限</button>
+        </div>
+        <p class="msg" style="font-size:12px;margin:6px 0 0">每月另有固定上限：車程 4,900 次、定位 9,000 次（都在 Google 每月免費額度內），每日上限怎麼調都不會超過。所有同仁共用同一份額度，次數每天 0 點（台灣時間）重算。</p>
+      </details>
       <input id="linkOut" readonly hidden style="margin-top:8px;font-size:14px">
       <div id="refreshBox" hidden style="margin-top:10px;font-size:14px"></div>
     </div>
@@ -1037,6 +1047,30 @@ $('cpImg').addEventListener('click', async () => {
   try { await navigator.clipboard.write([new ClipboardItem({'image/png': blobOf(lastCanvas)})]); $('omsg').textContent = '圖片已複製，可以直接貼到 LINE。'; }
   catch(e){ $('omsg').textContent = '這個瀏覽器不允許複製圖片，請改用下載圖片。'; }
 });
+// ---- Google 用量：顯示今日／本月使用次數與剩餘次數，可以調整每日上限 ----
+let usageT = null;
+const scheduleUsage = () => { clearTimeout(usageT); usageT = setTimeout(loadUsage, 2500); };
+function showUsage(u){
+  const left = (a, b) => Math.max(0, b - a).toLocaleString();
+  const r = u.route, g = u.geo;
+  $('gUseSum').textContent = `Google 用量：車程今日剩 ${left(r.today, Math.min(r.daily, r.monthly - r.month + r.today))}／${r.daily} 次｜定位今日剩 ${left(g.today, Math.min(g.daily, g.monthly - g.month + g.today))}／${g.daily} 次`;
+  $('gUseBody').innerHTML = `車程（Google 即時路況）：今日已用 <b>${r.today}</b> 次，剩 <b>${left(r.today, r.daily)}</b> 次；本月已用 ${r.month.toLocaleString()}／${r.monthly.toLocaleString()} 次<br>定位（地址、周遭行情）：今日已用 <b>${g.today}</b> 次，剩 <b>${left(g.today, g.daily)}</b> 次；本月已用 ${g.month.toLocaleString()}／${g.monthly.toLocaleString()} 次<br><small>超過上限時，車程會自動改用估算、定位會改用 OpenStreetMap，網站照常可以用。</small>`;
+  if (document.activeElement !== $('gRouteMax')) $('gRouteMax').value = r.daily;
+  if (document.activeElement !== $('gGeoMax')) $('gGeoMax').value = g.daily;
+}
+async function loadUsage(){
+  if (!FETCH_URL) return;
+  try { const r = await fetch(FETCH_URL + 'usage', {cache: 'no-store'}); if (r.ok) showUsage(await r.json()); } catch(e){}
+}
+$('gSave').addEventListener('click', async () => {
+  const body = JSON.stringify({routeDaily: num($('gRouteMax').value), geoDaily: num($('gGeoMax').value)});
+  try {
+    const r = await fetch(FETCH_URL + 'usage', {method: 'POST', headers: {'content-type': 'text/plain'}, body});
+    if (!r.ok) throw new Error(r.status);
+    showUsage(await r.json()); $('omsg').textContent = '每日上限已更新（所有同仁一起套用）。';
+  } catch(e){ $('omsg').textContent = '上限沒有儲存成功，請再試一次。'; }
+});
+loadUsage(); setInterval(() => { if (!document.hidden) loadUsage(); }, 60000);
 $('copyText').addEventListener('click', async () => { // 複製帶看路線（和帶看路線區的文字相同，含短網址）
   if (!props.length){ $('omsg').textContent = '請先加入物件。'; return; }
   if ($('tour').hidden){ $('tour').hidden = false; renderTour(); store.set('pc-tourOpen', true); await waitRoute(); }
@@ -1181,6 +1215,7 @@ async function calcRoute(){
       const r = await fetch(`${FETCH_URL}route?pts=${st.map(p => `${(+p.lat).toFixed(6)},${(+p.lng).toFixed(6)}`).join(';')}${dep ? '&dep=' + encodeURIComponent(dep) : ''}`, {cache: 'no-store'});
       const j = await r.json();
       if (r.ok && j.src === 'google' && j.legs && j.legs.length === st.length - 1) g = j;
+      if (typeof scheduleUsage === 'function') scheduleUsage();
     } catch(e){}
     if (g) routeInfo = routeCache[ck] = {key, ck, src: 'google', dep: g.dep, ids: st.map(p => p.id), legs: g.legs.map(l => ({raw: l.dur, dur: l.dur, dist: l.dist})), total: g.total, geom: g.geom};
     else try {
@@ -1468,6 +1503,7 @@ let geoSaveT = null; const saveGeoSoon = () => { clearTimeout(geoSaveT); geoSave
 async function geocodeG(q){
   const k = 'G|' + q; if (k in geoCache) return geoCache[k];
   const r = await fetch(`${FETCH_URL}geo?q=${encodeURIComponent(q)}`, {cache: 'no-store'});
+  try { scheduleUsage(); } catch(e){}
   if (r.status === 404) { geoCache[k] = null; store.set('pc-geo', geoCache); return null; }
   const j = await r.json().catch(() => null);
   if (!r.ok || !j || j.lat == null) throw new Error('geoG');
