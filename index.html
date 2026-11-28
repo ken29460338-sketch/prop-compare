@@ -1149,7 +1149,7 @@ $('shareLink').addEventListener('click', async () => {
   if (!props.length || isSample){ $('omsg').textContent = '請先加入你自己的物件。'; return; }
   const data = { p: props.map(p => Object.fromEntries(KEEP.filter(k => p[k] !== '' && p[k] != null && p[k] !== false).map(k => [k, p[k]]))),
     a: $('agent').value.trim(), ph: $('phone').value.trim(), s: $('store').value.trim(), c: $('client').value.trim(), n: $('note').value.trim() };
-  const url = location.href.split('#')[0] + '#d=' + await pack(data);
+  const url = 'https://prop-compare.pages.dev/view#d=' + await pack(data); // 客戶用的分享頁，免登入
   $('linkOut').hidden = false; $('linkOut').value = url; $('linkOut').select();
   try { await navigator.clipboard.writeText(url); $('omsg').textContent = '分享連結已複製，客戶打開就看得到同一份比較表。'; }
   catch(e){ $('omsg').textContent = '請手動複製下方連結。'; }
@@ -1413,7 +1413,7 @@ $('tourBtn').addEventListener('click', async () => {
   showPreview('tour', '帶看路線圖', '編號為帶看順序、紅線為開車路線、標籤為兩站間車程。要調整順序或時間，請在上方「帶看路線」區修改後再按一次「產生帶看路線圖」。', [cv]);
 });
 // 官網資料：透過 Cloudflare Worker 讀信義官網（worker/sinyi-proxy.js），還沒設定時 FETCH_URL 留空
-const FETCH_URL = 'https://sinyi-proxy.ken29460338.workers.dev/';
+const FETCH_URL = /\.pages\.dev$/.test(location.hostname) ? location.origin + '/api/' : 'https://sinyi-proxy.ken29460338.workers.dev/'; // pages.dev 走同網域 /api（帶登入憑證），其他網址直接連中繼服務
 function applyOfficial(p, d){
   const S = v => (v == null ? '' : String(v).trim());
   const area = t => { const x = (d.areaInfo || []).find(a => S(a.title).startsWith(t)); return x ? num(x.area) : null; };
