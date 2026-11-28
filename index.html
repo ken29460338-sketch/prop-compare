@@ -229,7 +229,7 @@ button.sec{background:var(--panel);border-color:var(--rule)}
       </div>
     </div>
     <div class="row span" role="group" aria-label="比較範圍" style="margin-top:6px;justify-content:flex-end">
-      <span class="msg" style="font-size:13px">範圍：</span><button class="s" data-scope="comm">同社區／同路段</button><button class="s" data-scope="300">物件周遭 300 公尺</button><button class="s" data-scope="500">物件周遭 500 公尺</button>
+      <span class="msg" style="font-size:13px">範圍：</span><button class="s" data-scope="comm">同社區／同路段</button><button class="s" data-scope="100">物件周遭 100 公尺</button><button class="s" data-scope="200">物件周遭 200 公尺</button><button class="s" data-scope="300">物件周遭 300 公尺</button><button class="s" data-scope="500">物件周遭 500 公尺</button>
     </div>
     <div id="lvrList"></div>
     <p class="msg" id="lvrNote" style="margin:8px 0 0"></p>
@@ -1542,7 +1542,7 @@ async function lvrRadius(p, cat, idx, R, run){
   if (run !== lvrRun) return {stale: true};
   found.sort((x, y) => y.r[0] - x.r[0]);
   const w = lvrSpanPick(found.map(x => x.r), 3), keep = new Set(w.list);
-  return {rows: found.filter(x => keep.has(x.r)), label: w.label, scope: `物件周遭 ${R} 公尺內的${cat === 'house' ? '透天' : '大樓／華廈'}（位置依門牌推估，約有 50–100 公尺誤差）`, short: budget <= 0};
+  return {rows: found.filter(x => keep.has(x.r)), label: w.label, scope: `物件周遭 ${R} 公尺內的${cat === 'house' ? '透天' : '大樓／華廈'}（位置依門牌推估，約有 50–100 公尺誤差${R <= 200 ? '，100／200 公尺範圍邊界附近的成交可能多算或漏算' : ''}）`, short: budget <= 0};
 }
 // 親友、員工、共有人或其他特殊關係間之交易：價格通常偏低，明確標示並排除在平均之外
 const isRel = r => /親友|員工|共有人|特殊關係|二親等|關係人間/.test(r[18] || '');
