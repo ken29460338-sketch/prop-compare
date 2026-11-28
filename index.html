@@ -364,7 +364,7 @@ const ROWS = [
     const v = num(p.landUnit) != null ? num(p.landUnit) : (num(p.price) && num(p.landArea) ? num(p.price) / num(p.landArea) : null);
     return v != null ? `約${f2(v)}萬/坪` : ''; }},
   {k:'road', l:'門前道路寬', f:['roadWidth'], icon:'road', show:p => { const t = String(p.roadWidth ?? '').trim(); return !t ? '' : /^[\d.]+$/.test(t) ? `${t}米` : t; }},
-  {k:'ptype', l:'房屋類型', f:['ptype'], icon:'bldg', show:p => { try { if (p.ptype && catFromLabel(p.ptype)) return LVR_CAT[catFromLabel(p.ptype)]; const c = catOf(p), unsure = (c === 'shop' || c === 'shoph') && !shopGuess(p).sure; return `${LVR_CAT[c]}（${unsure ? '無法確定，請點此選大樓店面或透天店面' : '自動判斷'}）`; } catch(e){ return p.ptype || ''; } }},
+  {k:'ptype', l:'房屋類型', f:['ptype'], icon:'bldg', show:p => { try { if (p.ptype && catFromLabel(p.ptype)) return LVR_CAT[catFromLabel(p.ptype)]; const c = catOf(p), unsure = (c === 'shop' || c === 'shoph') && !shopGuess(p).sure; if (inImage) return LVR_CAT[c]; return `${LVR_CAT[c]}（${unsure ? '無法確定，請點此選大樓店面或透天店面' : '自動判斷'}）`; } catch(e){ return p.ptype || ''; } }},
   {k:'layout', l:'格局', f:['layout'], icon:'sofa', show:p => p.layout || ''},
   {k:'age', l:'屋齡', f:['age'], icon:'cal', show:p => num(p.age) != null ? `${nf(num(p.age))}年` : ''},
   {k:'floor', l:'樓層', f:['floor'], icon:'bldg', show:p => String(p.floor || '').replace(/\s*[\/／]\s*/g, ' / ')},
@@ -676,7 +676,9 @@ function renderThemeBar(){
     bar.appendChild(b);
   });
 }
-function drawImage(opt = {}){ // opt.cv：畫到別的畫布（PDF 用）；opt.fill：目標高寬比，內容放大／列高拉開填滿頁面
+let inImage = false;
+function drawImage(opt = {}){ inImage = true; try { return drawImageInner(opt); } finally { inImage = false; } }
+function drawImageInner(opt = {}){ // opt.cv：畫到別的畫布（PDF 用）；opt.fill：目標高寬比，內容放大／列高拉開填滿頁面
   const list = sorted(), best = null;
   const rows = visibleRows().filter(r => r.k !== 'title' && list.some(p => String(r.show(p) || '').trim()));
   const n = Math.max(list.length, 1), S = 2, PAD = 28, GAP = 12, LW = 300;
