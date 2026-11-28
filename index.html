@@ -809,22 +809,22 @@ function drawLvrPages(){
     const ths = [...b.querySelectorAll('thead th')].map(t => t.textContent.trim());
     const trs = [...b.querySelectorAll('tbody tr')].map(tr => ({rel: tr.classList.contains('rel'), cells: [...tr.children].map(td => td.textContent.replace(/\s+/g, ' ').replace('特殊關係交易・價格可能偏低', '【特殊關係】').trim())}));
     ctx.font = `400 13px ${FONT}`; const sumL = wrap(ctx, sum, W - PAD * 2, 3);
-    const RH = 23, need = 30 + sumL.length * 19 + (trs.length ? 28 + Math.min(trs.length, 3) * RH : 0);
+    const RH = 26, need = 30 + sumL.length * 19 + (trs.length ? 28 + Math.min(trs.length, 3) * RH : 0);
     if (y + need > H - 40){ foot(); newPage(); }
     ctx.fillStyle = '#141414'; ctx.font = `700 17px ${FONT}`; ctx.fillText(name, PAD, y + 4); y += 24;
     ctx.fillStyle = '#4a463f'; ctx.font = `400 13px ${FONT}`; sumL.forEach(l => { ctx.fillText(l, PAD, y); y += 19; });
     if (!trs.length){ y += 12; continue; }
     // 欄寬依內容長度分配
-    ctx.font = `400 12.5px ${FONT}`;
+    ctx.font = `400 14px ${FONT}`;
     const nat = ths.map((h, j) => Math.min(j === 1 ? 300 : 170, Math.max(ctx.measureText(h).width, ...trs.map(r => ctx.measureText(r.cells[j] || '').width)) + 14));
     const tot = nat.reduce((a, c) => a + c, 0), sc = (W - PAD * 2) / tot, cw = nat.map(w => w * sc);
-    const head = () => { ctx.fillStyle = '#f0ede6'; ctx.fillRect(PAD, y, W - PAD * 2, 24); ctx.fillStyle = '#3f3f38'; ctx.font = `700 12px ${FONT}`; let x = PAD; ths.forEach((h, j) => { ctx.textAlign = 'center'; ctx.fillText(wrap(ctx, h, cw[j] - 6, 1)[0] || '', x + cw[j] / 2, y + 16); x += cw[j]; }); ctx.textAlign = 'left'; y += 26; };
+    const head = () => { ctx.fillStyle = '#f0ede6'; ctx.fillRect(PAD, y, W - PAD * 2, 24); ctx.fillStyle = '#3f3f38'; ctx.font = `700 13px ${FONT}`; let x = PAD; ths.forEach((h, j) => { ctx.textAlign = 'center'; ctx.fillText(wrap(ctx, h, cw[j] - 6, 1)[0] || '', x + cw[j] / 2, y + 16); x += cw[j]; }); ctx.textAlign = 'left'; y += 26; };
     head();
     for (const r of trs){
       if (y + RH > H - 40){ foot(); newPage(); ctx.fillStyle = '#141414'; ctx.font = `700 15px ${FONT}`; ctx.fillText(name + '（續）', PAD, y + 4); y += 22; head(); }
       if (r.rel){ ctx.fillStyle = '#fde8e4'; ctx.fillRect(PAD, y - 2, W - PAD * 2, RH); }
-      let x = PAD; ctx.font = `400 12.5px ${FONT}`;
-      r.cells.forEach((c, j) => { ctx.fillStyle = r.rel && c.includes('【特殊關係】') ? '#c8371e' : '#2b2925'; ctx.textAlign = j === 1 ? 'left' : 'center'; ctx.fillText(wrap(ctx, c, cw[j] - 8, 1)[0] || '', j === 1 ? x + 4 : x + cw[j] / 2, y + 14); x += cw[j]; });
+      let x = PAD; ctx.font = `400 14px ${FONT}`;
+      r.cells.forEach((c, j) => { ctx.fillStyle = r.rel && c.includes('【特殊關係】') ? '#c8371e' : '#2b2925'; ctx.textAlign = j === 1 ? 'left' : 'center'; ctx.fillText(wrap(ctx, c, cw[j] - 8, 1)[0] || '', j === 1 ? x + 4 : x + cw[j] / 2, y + 16); x += cw[j]; });
       ctx.textAlign = 'left'; ctx.strokeStyle = '#ece8e0'; ctx.beginPath(); ctx.moveTo(PAD, y + RH - 2); ctx.lineTo(W - PAD, y + RH - 2); ctx.stroke();
       y += RH;
     }
@@ -835,13 +835,29 @@ function drawLvrPages(){
 }
 // 格局圖比較：所有格局圖＋社區名稱放進一張 A4，自動選直式／橫式與排法，讓每張格局圖盡量大
 const loadImg = src => new Promise(res => { const im = new Image(); im.crossOrigin = 'anonymous'; const t = setTimeout(() => res(null), 15000); im.onload = () => { clearTimeout(t); res(im); }; im.onerror = () => { clearTimeout(t); res(null); }; im.src = src; });
+// 格局圖原檔四周常有大片白邊：找出有內容的範圍再裁切，格局圖可以放更大
+function trimWhite(im){
+  const w = im.naturalWidth, h = im.naturalHeight, k = Math.min(1, 600 / Math.max(w, h));
+  const sw = Math.max(1, Math.round(w * k)), sh = Math.max(1, Math.round(h * k));
+  const c = document.createElement('canvas'); c.width = sw; c.height = sh; const x = c.getContext('2d');
+  x.drawImage(im, 0, 0, sw, sh);
+  let d; try { d = x.getImageData(0, 0, sw, sh).data; } catch(e){ return {src: im, sx: 0, sy: 0, w, h}; }
+  let x0 = sw, y0 = sh, x1 = -1, y1 = -1;
+  for (let yy = 0; yy < sh; yy++) for (let xx = 0; xx < sw; xx++){
+    const i = (yy * sw + xx) * 4; if (d[i] < 235 || d[i + 1] < 235 || d[i + 2] < 235){ if (xx < x0) x0 = xx; if (xx > x1) x1 = xx; if (yy < y0) y0 = yy; if (yy > y1) y1 = yy; }
+  }
+  if (x1 < 0) return {src: im, sx: 0, sy: 0, w, h};
+  const pad = 6, sx = Math.max(0, (x0 - pad) / k), sy = Math.max(0, (y0 - pad) / k);
+  return {src: im, sx, sy, w: Math.min(w, (x1 + pad) / k) - sx, h: Math.min(h, (y1 + pad) / k) - sy};
+}
 async function drawLayoutPage(){
   const list = sorted().filter(p => /^https:\/\/res\.sinyi\.com\.tw\//.test(p.layoutImage || ''));
   if (!list.length) return null;
   await loadFonts();
   const imgs = await Promise.all(list.map(p => loadImg(`${FETCH_URL}img?u=${encodeURIComponent(p.layoutImage)}`)));
   const S = 2, PAD = 36, G = 22, TOP = 108, LAB = 58;
-  const dims = imgs.map(im => im ? [im.naturalWidth, im.naturalHeight] : [4, 3]);
+  const cuts = imgs.map(im => im ? trimWhite(im) : null);
+  const dims = cuts.map(t => t ? [t.w, t.h] : [4, 3]);
   let best = null;
   for (const [W, H] of [[842, 1191], [1191, 842]]) for (let cols = 1; cols <= list.length; cols++){
     const rows = Math.ceil(list.length / cols);
@@ -867,9 +883,9 @@ async function drawLayoutPage(){
     ctx.fillStyle = '#6b655e'; ctx.font = `400 12.5px ${FONT}`;
     const sub = [p.community ? p.title : '', p.layout, num(p.area) ? `${f2(num(p.area))}坪` : '', num(p.price) ? `${fN(num(p.price))}萬` : ''].filter(Boolean).join('｜');
     ctx.fillText(wrap(ctx, sub, cw - 8, 1)[0] || '', x + 4, y + 52);
-    const iy = y + LAB, im = imgs[i];
+    const iy = y + LAB, t = cuts[i];
     ctx.strokeStyle = '#e2ddd4'; ctx.lineWidth = 1; ctx.strokeRect(x + .5, iy + .5, cw - 1, ch - 1);
-    if (im){ const sc = Math.min((cw - 8) / im.naturalWidth, (ch - 8) / im.naturalHeight), w = im.naturalWidth * sc, h = im.naturalHeight * sc; ctx.drawImage(im, x + (cw - w) / 2, iy + (ch - h) / 2, w, h); }
+    if (t){ const sc = Math.min((cw - 8) / t.w, (ch - 8) / t.h), w = t.w * sc, h = t.h * sc; ctx.drawImage(t.src, t.sx, t.sy, t.w, t.h, x + (cw - w) / 2, iy + (ch - h) / 2, w, h); }
     else { ctx.fillStyle = '#a59e95'; ctx.font = `400 14px ${FONT}`; ctx.textAlign = 'center'; ctx.fillText('格局圖載入失敗', x + cw / 2, iy + ch / 2); ctx.textAlign = 'left'; }
   });
   const miss = sorted().length - list.length;
