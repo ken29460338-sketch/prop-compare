@@ -1070,7 +1070,7 @@ $('gSave').addEventListener('click', async () => {
     showUsage(await r.json()); $('omsg').textContent = '每日上限已更新（所有同仁一起套用）。';
   } catch(e){ $('omsg').textContent = '上限沒有儲存成功，請再試一次。'; }
 });
-loadUsage(); setInterval(() => { if (!document.hidden) loadUsage(); }, 60000);
+setTimeout(loadUsage, 300); setInterval(() => { if (!document.hidden) loadUsage(); }, 60000);
 $('copyText').addEventListener('click', async () => { // 複製帶看路線（和帶看路線區的文字相同，含短網址）
   if (!props.length){ $('omsg').textContent = '請先加入物件。'; return; }
   if ($('tour').hidden){ $('tour').hidden = false; renderTour(); store.set('pc-tourOpen', true); await waitRoute(); }
