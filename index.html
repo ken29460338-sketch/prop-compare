@@ -323,6 +323,7 @@ button.sec{background:var(--panel);border-color:var(--rule)}
         <button id="closePrev">關閉</button>
       </div>
     </div>
+    <div class="row" id="themeBar" style="gap:8px;align-items:center;margin:8px 0 0;flex-wrap:wrap"><span class="msg" style="margin:0">比較表樣式：</span></div>
     <p class="msg" style="margin:6px 0 10px" id="prevNote">整列都沒資料的項目不會出現在圖上。要修改內容請直接改上方表格，再按一次「產生比較圖」。</p>
     <canvas id="cv"></canvas>
     <div id="prevPages"></div>
@@ -656,6 +657,24 @@ function drawIcon(ctx, k, x, y, size, color){
   ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   ctx.stroke(new Path2D(ICONS[k] || '')); ctx.restore();
 }
+// ---- 比較表樣式：只換配色與裝飾，內容完全相同 ----
+const THEMES = {
+  sage:  {name:'森林綠（原版）', bg:'#f8f6f1', blob:'rgba(232,226,212,.55)', decor:'leaf', title:'#3f3f38', tline:'#a9b19c', sub:'#7a776d', card:'#fdfcf9', head:'#7d8f6e', headTx:'#fff', r:14, shadow:'rgba(80,70,50,.10)', icon:'#8a9a7c', label:'#3f3f38', ink:'#3f3f38', mute:'#7a776d', line:'#ddd6c8', dash:[3,4], cell:'#f6efe3', price:'#6b5a3e', drop:'#7d8f6e', badge:'#b49a6c', pin:'#b49a6c'},
+  navy:  {name:'商務藍金', bg:'#f3f5f8', blob:null, decor:'corner', title:'#1f2f4a', tline:'#c2a564', sub:'#5d6676', card:'#ffffff', head:'#1f3556', headTx:'#f4e7c5', r:8, shadow:'rgba(20,35,60,.12)', icon:'#b0924f', label:'#1f2f4a', ink:'#25303f', mute:'#6b7380', line:'#dfe3ea', dash:[], cell:'#f6f0e1', price:'#1f3556', drop:'#9a7b35', badge:'#c2a564', pin:'#b0924f'},
+  terra: {name:'暖木陶土', bg:'#faf4ec', blob:'rgba(233,208,184,.45)', decor:'dots', title:'#5a3a28', tline:'#d3a585', sub:'#8a6f5e', card:'#fffaf4', head:'#b8664a', headTx:'#fff', r:20, shadow:'rgba(120,70,40,.12)', icon:'#c07a5c', label:'#5a3a28', ink:'#4b3a30', mute:'#8a776a', line:'#ecd9c8', dash:[2,5], cell:'#f7e6d6', price:'#9a4f36', drop:'#a0674c', badge:'#7c8f5a', pin:'#c07a5c'},
+  mono:  {name:'極簡黑白', bg:'#ffffff', blob:null, decor:'none', title:'#111111', tline:'#111111', sub:'#666666', card:'#ffffff', head:'#222222', headTx:'#ffffff', r:4, shadow:null, border:'#d6d6d6', icon:'#444444', label:'#222222', ink:'#222222', mute:'#777777', line:'#e5e5e5', dash:[], cell:'#f2f2f2', price:'#111111', drop:'#555555', badge:'#111111', pin:'#444444'}
+};
+let themeKey = THEMES[store.get('pc-theme', 'sage')] ? store.get('pc-theme', 'sage') : 'sage';
+function renderThemeBar(){
+  const bar = $('themeBar'); if (!bar) return;
+  bar.querySelectorAll('button').forEach(b => b.remove());
+  Object.entries(THEMES).forEach(([k, t]) => {
+    const b = document.createElement('button'); b.className = k === themeKey ? 'p' : 's';
+    b.innerHTML = `<span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${t.head};margin-right:6px;vertical-align:-1px;border:1px solid rgba(0,0,0,.15)"></span>${t.name}`;
+    b.addEventListener('click', async () => { themeKey = k; store.set('pc-theme', k); renderThemeBar(); await loadFonts(); drawImage(); });
+    bar.appendChild(b);
+  });
+}
 function drawImage(opt = {}){ // opt.cv：畫到別的畫布（PDF 用）；opt.fill：目標高寬比，內容放大／列高拉開填滿頁面
   const list = sorted(), best = null;
   const rows = visibleRows().filter(r => r.k !== 'title' && list.some(p => String(r.show(p) || '').trim()));
@@ -678,33 +697,49 @@ function drawImage(opt = {}){ // opt.cv：畫到別的畫布（PDF 用）；opt.
   const rh = r => rowH[r.k];
   const ctx = cv.getContext('2d');
   cv.width = W * S; cv.height = H * S; ctx.setTransform(S, 0, 0, S, 0, 0);
-  const SAGE = '#7d8f6e', INK = '#3f3f38', MUTE = '#7a776d', LINE = '#ddd6c8', CREAM = '#f6efe3', BROWN = '#6b5a3e';
+  const T = THEMES[themeKey] || THEMES.sage;
+  const SAGE = T.head, INK = T.ink, MUTE = T.mute, LINE = T.line, CREAM = T.cell, BROWN = T.price;
   // 底色與裝飾
-  ctx.fillStyle = '#f8f6f1'; ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = 'rgba(232,226,212,.55)'; ctx.beginPath(); ctx.ellipse(W * 0.22, 40, 260, 120, 0.15, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.ellipse(W * 0.86, 90, 230, 110, -0.2, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.ellipse(W * 0.5, H + 20, 420, 90, 0, 0, Math.PI * 2); ctx.fill();
-  leafBranch(ctx, -20, -20, 1.15, false); leafBranch(ctx, W + 20, -10, 1.0, true);
+  ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
+  if (T.blob){
+    ctx.fillStyle = T.blob; ctx.beginPath(); ctx.ellipse(W * 0.22, 40, 260, 120, 0.15, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(W * 0.86, 90, 230, 110, -0.2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(W * 0.5, H + 20, 420, 90, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  if (T.decor === 'leaf'){ leafBranch(ctx, -20, -20, 1.15, false); leafBranch(ctx, W + 20, -10, 1.0, true); }
+  else if (T.decor === 'corner'){ // 商務：上緣色帶＋四角金色細框
+    ctx.fillStyle = T.head; ctx.fillRect(0, 0, W, 10); ctx.fillStyle = T.tline; ctx.fillRect(0, 10, W, 3);
+    ctx.strokeStyle = T.tline; ctx.lineWidth = 2; const m = 14, L = 60;
+    [[m, m + 14, 1, 1], [W - m, m + 14, -1, 1], [m, H - m, 1, -1], [W - m, H - m, -1, -1]].forEach(([x, y0, dx, dy]) => { ctx.beginPath(); ctx.moveTo(x, y0 + dy * L); ctx.lineTo(x, y0); ctx.lineTo(x + dx * L, y0); ctx.stroke(); });
+  } else if (T.decor === 'dots'){ // 暖木：圓點與弧線
+    const dot = (x, y, r, a) => { ctx.fillStyle = `rgba(192,122,92,${a})`; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); };
+    dot(70, 60, 46, .16); dot(140, 30, 18, .22); dot(W - 90, 70, 54, .14); dot(W - 170, 30, 14, .24); dot(W - 60, 150, 10, .2);
+    ctx.strokeStyle = 'rgba(124,143,90,.35)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(W - 40, -40, 150, 0.4 * Math.PI, 0.9 * Math.PI); ctx.stroke();
+    ctx.beginPath(); ctx.arc(30, -60, 170, 0.1 * Math.PI, 0.55 * Math.PI); ctx.stroke();
+  }
   // 標題
   ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = INK; ctx.font = `700 52px ${SERIF}`;
+  ctx.fillStyle = T.title; ctx.font = `700 52px ${themeKey === 'mono' ? FONT : SERIF}`;
   const title = '精選案源比較表'; ctx.fillText(title, W / 2, 92);
   const tw = ctx.measureText(title).width;
-  ctx.strokeStyle = '#a9b19c'; ctx.lineWidth = 1.5; ctx.beginPath();
+  ctx.strokeStyle = T.tline; ctx.lineWidth = themeKey === 'mono' ? 2 : 1.5; ctx.beginPath();
   ctx.moveTo(W / 2 - tw / 2 - 170, 72); ctx.lineTo(W / 2 - tw / 2 - 30, 72); ctx.moveTo(W / 2 + tw / 2 + 30, 72); ctx.lineTo(W / 2 + tw / 2 + 170, 72); ctx.stroke();
   const client = $('client').value.trim(), note = $('note').value.trim();
   const nums = '一二三四五六七八九十';
   const subtitle = note || `${client ? client + ' 您好，' : ''}為您整理${list.length <= 10 ? nums[list.length - 1] : list.length}個合適物件，一目掌握關鍵差異`;
-  ctx.fillStyle = MUTE; ctx.font = `400 22px ${FONT}`;
+  ctx.fillStyle = T.sub; ctx.font = `400 22px ${FONT}`;
   ctx.fillText(subtitle.split('').join(String.fromCharCode(8202)), W / 2, 134);
   ctx.textAlign = 'left';
-  const shadow = () => { ctx.shadowColor = 'rgba(80,70,50,.10)'; ctx.shadowBlur = 14; ctx.shadowOffsetY = 3; };
+  const shadow = () => { if (!T.shadow) return; ctx.shadowColor = T.shadow; ctx.shadowBlur = 14; ctx.shadowOffsetY = 3; };
   const noShadow = () => { ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0; };
   // 卡片：左側項目欄＋每間一欄
   const cols = [{x: PAD, w: LW}].concat(list.map((p, i) => ({x: PAD + LW + GAP + i * (CW + GAP), w: CW, p})));
-  cols.forEach(c => { shadow(); ctx.fillStyle = '#fdfcf9'; rr(ctx, c.x, TOP, c.w, HH + bodyH + 12, 14); ctx.fill(); noShadow();
-    ctx.save(); rr(ctx, c.x, TOP, c.w, HH + bodyH + 12, 14); ctx.clip(); ctx.fillStyle = SAGE; ctx.fillRect(c.x, TOP, c.w, HH); ctx.restore(); });
-  ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
+  cols.forEach(c => { shadow(); ctx.fillStyle = T.card; rr(ctx, c.x, TOP, c.w, HH + bodyH + 12, T.r); ctx.fill(); noShadow();
+    if (T.border){ ctx.strokeStyle = T.border; ctx.lineWidth = 1; rr(ctx, c.x, TOP, c.w, HH + bodyH + 12, T.r); ctx.stroke(); }
+    ctx.save(); rr(ctx, c.x, TOP, c.w, HH + bodyH + 12, T.r); ctx.clip(); ctx.fillStyle = SAGE; ctx.fillRect(c.x, TOP, c.w, HH);
+    if (themeKey === 'navy'){ ctx.fillStyle = T.tline; ctx.fillRect(c.x, TOP + HH - 3, c.w, 3); }
+    ctx.restore(); });
+  ctx.textAlign = 'center'; ctx.fillStyle = T.headTx;
   ctx.font = `500 26px ${SERIF}`; ctx.fillText('物件', PAD + LW / 2, TOP + 46);
   cols.slice(1).forEach(c => {
     ctx.font = `500 25px ${SERIF}`;
@@ -715,7 +750,7 @@ function drawImage(opt = {}){ // opt.cv：畫到別的畫布（PDF 用）；opt.
   const bc = cols.find(c => c.p && c.p.id === best);
   if (bc){ // 扣車單價最低的那間：卡片上緣掛一個小標籤
     ctx.font = `700 16px ${FONT}`; const lt = '扣車單價最低', lw = ctx.measureText(lt).width + 28;
-    shadow(); ctx.fillStyle = '#b49a6c'; rr(ctx, bc.x + bc.w / 2 - lw / 2, TOP - 15, lw, 30, 15); ctx.fill(); noShadow();
+    shadow(); ctx.fillStyle = T.badge; rr(ctx, bc.x + bc.w / 2 - lw / 2, TOP - 15, lw, 30, 15); ctx.fill(); noShadow();
     ctx.fillStyle = '#fff'; ctx.fillText(lt, bc.x + bc.w / 2, TOP + 6);
   }
   ctx.textAlign = 'left';
@@ -723,12 +758,12 @@ function drawImage(opt = {}){ // opt.cv：畫到別的畫布（PDF 用）；opt.
   let y = TOP + HH;
   rows.forEach((r, ri) => {
     const h = rh(r);
-    drawIcon(ctx, r.icon, PAD + 28, y + h / 2 - 15, 30, '#8a9a7c');
-    ctx.fillStyle = INK; ctx.font = `400 28px ${FONT}`; ctx.fillText(r.l, PAD + 80, y + h / 2 + 9);
+    drawIcon(ctx, r.icon, PAD + 28, y + h / 2 - 15, 30, T.icon);
+    ctx.fillStyle = T.label; ctx.font = `400 28px ${FONT}`; ctx.fillText(r.l, PAD + 80, y + h / 2 + 9);
     cols.slice(1).forEach(c => {
       const p = c.p;
       if (r.k === 'total'){
-        ctx.fillStyle = CREAM; rr(ctx, c.x + 6, y + 6, c.w - 12, h - 12, 10); ctx.fill();
+        ctx.fillStyle = CREAM; rr(ctx, c.x + 6, y + 6, c.w - 12, h - 12, Math.min(10, T.r)); ctx.fill();
         ctx.textAlign = 'center';
         const pr = num(p.price), c1 = calc(p);
         if (pr){
@@ -741,7 +776,7 @@ function drawImage(opt = {}){ // opt.cv：畫到別的畫布（PDF 用）；opt.
           ctx.textAlign = 'center'; ctx.font = `400 21px ${FONT}`; ctx.fillStyle = isLandType(p) ? (lu ? INK : MUTE) : c1.unit ? INK : MUTE;
           const sb = r.sub(p), dt = dropTxt(p); let ly = y + 84;
           if (sb){ ctx.fillText(sb, c.x + c.w / 2, ly); ly += 32; }
-          if (dt){ ctx.font = `400 20px ${FONT}`; ctx.fillStyle = '#7d8f6e'; ctx.fillText(dt, c.x + c.w / 2, ly); }
+          if (dt){ ctx.font = `400 20px ${FONT}`; ctx.fillStyle = T.drop; ctx.fillText(dt, c.x + c.w / 2, ly); }
         }
         ctx.textAlign = 'left';
         return;
@@ -754,14 +789,14 @@ function drawImage(opt = {}){ // opt.cv：畫到別的畫布（PDF 用）；opt.
         const ly = y0 + j * LH;
         if (r.k === 'address' && j === 0){
           const w = ctx.measureText(ln).width, sx = cx - (w + 30) / 2;
-          drawIcon(ctx, 'pin', sx - 2, ly - VF * 0.95, Math.round(VF * 1.15), '#b49a6c');
+          drawIcon(ctx, 'pin', sx - 2, ly - VF * 0.95, Math.round(VF * 1.15), T.pin);
           ctx.textAlign = 'left'; ctx.fillText(ln, sx + 30, ly);
         } else { ctx.textAlign = 'center'; ctx.fillText(ln, cx, ly); }
       });
       ctx.textAlign = 'left';
     });
     if (ri < rows.length - 1){
-      ctx.strokeStyle = LINE; ctx.lineWidth = 1; ctx.setLineDash([3, 4]);
+      ctx.strokeStyle = LINE; ctx.lineWidth = 1; ctx.setLineDash(T.dash);
       cols.forEach(c => { ctx.beginPath(); ctx.moveTo(c.x + 10, y + h); ctx.lineTo(c.x + c.w - 10, y + h); ctx.stroke(); });
       ctx.setLineDash([]);
     }
@@ -781,6 +816,7 @@ function drawImage(opt = {}){ // opt.cv：畫到別的畫布（PDF 用）；opt.
 let prevPages = [], prevKind = 'cmp';
 function showPreview(kind, title, note, pages){
   prevKind = kind; prevPages = pages; lastCanvas = pages[0] || null;
+  if ($('themeBar')){ $('themeBar').style.display = kind === 'cmp' ? 'flex' : 'none'; renderThemeBar(); }
   $('prevTitle').textContent = title; $('prevNote').textContent = note;
   const box = $('prevPages'); box.innerHTML = '';
   if (pages.length === 1 && pages[0] === $('cv')) $('cv').style.display = '';
