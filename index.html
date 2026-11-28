@@ -517,6 +517,7 @@ function render(){
   }
   $('sample').textContent = isSample ? '目前顯示的是範例資料，貼上你的物件後會自動取代。' : '';
   renderSummary(); renderBars();
+  if (props.length && !isSample && !location.hash.startsWith('#d=') && $('tour').hidden && $('shared').hidden){ $('tour').hidden = false; store.set('pc-tourOpen', true); } // 有物件就自動打開帶看路線，地圖和車程自己跑
   if (typeof renderTour === 'function' && !location.hash.startsWith('#d=')) renderTour();
   if (typeof drawMap === 'function') { drawMap(); scheduleLocate(); }
   if (typeof renderLayouts === 'function') renderLayouts();
