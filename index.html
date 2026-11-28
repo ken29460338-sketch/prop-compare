@@ -336,7 +336,7 @@ const FIELD = {
   layout:{l:'格局',ph:'3房2廳2衛'}, builtDate:{l:'完成日',ph:'2016/05'}, age:{l:'屋齡(年)',n:1}, floor:{l:'樓層',ph:'8樓/12樓'},
   unitsPerFloor:{l:'該層戶數',n:1}, units:{l:'總戶數',n:1}, parkType:{l:'車位類型',ph:'坡道平面／無'}, parkArea:{l:'車位坪數',n:1},
   parkPrice:{l:'車位價(萬)',n:1}, parkNo:{l:'車位編號',ph:'B2-68、B2-69'}, landArea:{l:'土地坪數',n:1}, landUnit:{l:'地坪單價(萬)',n:1,ph:'空白＝自動計算'}, roadWidth:{l:'路寬',ph:'8米'}, elevators:{l:'電梯(部)',n:1}, guard:{l:'警衛',ph:'全天候'}, mgmtFee:{l:'管理費(元/月)',n:1}, address:{l:'地址'},
-  direction:{l:'朝向'}, memo:{l:'備註'}, price:{l:'總價(萬)',n:1}
+  direction:{l:'朝向'}, memo:{l:'備註'}, price:{l:'總價(萬)',n:1}, ptype:{l:'房屋類型',ph:'住宅大樓／華廈／公寓／透天／店面／辦公大樓／套房／土地'}
 };
 const nf = v => String(Math.round(v * 100) / 100);
 // 每列：show 主要文字，sub 第二行（可省略），icon 對應左側小圖示
@@ -353,6 +353,7 @@ const ROWS = [
     const v = num(p.landUnit) != null ? num(p.landUnit) : (num(p.price) && num(p.landArea) ? num(p.price) / num(p.landArea) : null);
     return v != null ? `約${f2(v)}萬/坪` : ''; }},
   {k:'road', l:'門前道路寬', f:['roadWidth'], icon:'road', show:p => { const t = String(p.roadWidth ?? '').trim(); return !t ? '' : /^[\d.]+$/.test(t) ? `${t}米` : t; }},
+  {k:'ptype', l:'房屋類型', f:['ptype'], icon:'bldg', show:p => { try { return p.ptype && catFromLabel(p.ptype) ? LVR_CAT[catFromLabel(p.ptype)] : `${LVR_CAT[autoCat(p)]}（自動判斷）`; } catch(e){ return p.ptype || ''; } }},
   {k:'layout', l:'格局', f:['layout'], icon:'sofa', show:p => p.layout || ''},
   {k:'age', l:'屋齡', f:['age'], icon:'cal', show:p => num(p.age) != null ? `${nf(num(p.age))}年` : ''},
   {k:'floor', l:'樓層', f:['floor'], icon:'bldg', show:p => String(p.floor || '').replace(/\s*[\/／]\s*/g, ' / ')},
@@ -392,7 +393,7 @@ const ICONS = {
 };
 const iconSvg = k => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[k] || ''}"/></svg>`;
 const SORTS = [['unit','扣車單價'],['price','總價'],['withPark','平均單價'],['area','登記坪數'],['age','屋齡'],['mgmtFee','管理費']];
-const DEFAULT_HIDE = ['direction','memo','title','land','landUnit','road'];
+const DEFAULT_HIDE = ['direction','memo','title','land','landUnit','road','ptype'];
 
 const SAMPLE = [
   {id:'s1',code:'範例1',title:'園道景觀三房平車',address:'台中市南區忠明南路',price:2180,origPrice:2380,area:56.2,mainArea:27.23,age:13.1,floor:'10樓/15樓',layout:'3房2廳2衛',parkType:'坡道平面',parkArea:9.01,parkPrice:250,mgmtFee:2845,elevator:'有'},
@@ -407,6 +408,7 @@ let props = sess.get('pc-props', []);
 let isSample = false;
 let hide = store.get('pc-hide3', DEFAULT_HIDE);
 if (!store.get('pc-hideV4', false)){ hide = [...new Set([...hide, 'land', 'landUnit', 'road'])]; store.set('pc-hide3', hide); store.set('pc-hideV4', true); }
+if (!store.get('pc-hideV5', false)){ hide = [...new Set([...hide, 'ptype'])]; store.set('pc-hide3', hide); store.set('pc-hideV5', true); } // 房屋類型預設隱藏
 let sortKey = 'unit', sortAsc = true;
 let fontScale = store.get('pc-fs', 1.3); // 比較表內容字體倍率（總價列不受影響）
 let lastCanvas = null, replaceMode = false;
@@ -572,6 +574,7 @@ function closeEditor(td){
     if (String(p[k] ?? '') !== String(nv ?? '')){
       p[k] = nv;
       if (k === 'parkPrice') p.parkEst = false;
+      if (k === 'ptype' && nv && typeof catFromLabel === 'function') p.ptype = catFromLabel(nv) ? LVR_CAT[catFromLabel(nv)] : nv;
       if ((k === 'address' || k === 'community') && typeof resetLoc === 'function') { resetLoc(p); if (typeof scheduleLocate === 'function') scheduleLocate(); }
     }
   }
@@ -1594,18 +1597,21 @@ async function lvrLocate(p){
   Object.assign(p, {lvrKey: key, lvrTown: town, lvrRoad: normRoad(road), lvrNoS: no || ''});
   return {town, road: normRoad(road), no: no || ''};
 }
-function lvrMatch(p, rows, loc){
+function lvrMatch(p, rows, loc, cat = 'tower'){
   const total = (String(p.floor || '').match(/\/\s*(\d+)/) || [])[1], floors = total ? +total : null;
   const built = num(p.age) != null ? Math.round((new Date().getFullYear() - 1911) - num(p.age)) : null;
   const no = lvrNo(loc.no);
   let hit = [], how = '';
+  const re = CAT_RE[cat] || /大樓|華廈/;
   if (no){
-    hit = rows.filter(r => (r[2] || '') === no.lane && r[3] != null && r[3] <= no.n && no.n <= r[4] && (r[3] === r[4] || !floors || !r[6] || r[6] === floors));
-    how = `${loc.road}${no.lane}${no.n}號`;
+    const all = rows.filter(r => (r[2] || '') === no.lane && r[3] != null && r[3] <= no.n && no.n <= r[4] && (r[3] === r[4] || !floors || !r[6] || r[6] === floors));
+    hit = all.filter(r => re.test(r[7])); // 同門牌也只比同一種房屋類型（例如不把一樓店面算進住宅行情）
+    how = `${loc.road}${no.lane}${no.n}號・${LVR_CAT[cat]}`;
+    if (!hit.length && all.length){ hit = all; how = `${loc.road}${no.lane}${no.n}號（同門牌沒有「${LVR_CAT[cat]}」的成交，改列同門牌全部，請確認房屋類型）`; }
   }
   if (!hit.length && floors && built != null){
-    hit = rows.filter(r => r[6] === floors && r[14] != null && Math.abs(r[14] - built) <= 1 && /大樓|華廈/.test(r[7]));
-    how = `${loc.road}・${floors} 層樓・約民國 ${built} 年完工（推定同社區）`;
+    hit = rows.filter(r => r[6] === floors && r[14] != null && Math.abs(r[14] - built) <= 1 && re.test(r[7]));
+    how = `${loc.road}・${LVR_CAT[cat]}・${floors} 層樓・約民國 ${built} 年完工（推定同社區）`;
   }
   return {hit, how};
 }
@@ -1616,17 +1622,37 @@ function lvrWindow(hit){
   for (const y of [3, 6]){ const l = hit.filter(r => r[0] >= cut(y)); if (l.length >= 3) return {list: l, label: `近 ${y} 年`}; }
   return {list: hit, label: '全部（近年成交太少，已往前拉）'};
 }
-// 產品類別：手動選的優先；沒選就依標題、樓層與坪數判斷
-function lvrCat(p){
-  if (p.lvrCat) return p.lvrCat;
+// 房屋類型（對應實價登錄的建物型態）：比較表「房屋類型」有填就用它；沒填依標題、樓高、坪數自動判斷
+const LVR_CAT = {tower: '住宅大樓', mansion: '華廈', apt: '公寓', house: '透天', shop: '店面', office: '辦公大樓', suite: '套房', land: '土地'};
+const CAT_RE = {tower: /住宅大樓/, mansion: /華廈/, apt: /公寓/, house: /透天/, shop: /店面/, office: /辦公/, suite: /套房/};
+function catFromLabel(t){
+  t = String(t || '').trim(); if (!t) return '';
+  if (/土地|建地|農地/.test(t)) return 'land';
+  if (/透天|別墅/.test(t)) return 'house';
+  if (/店面|店鋪|店舖/.test(t)) return 'shop';
+  if (/辦公|商辦/.test(t)) return 'office';
+  if (/套房/.test(t)) return 'suite';
+  if (/華廈/.test(t)) return 'mansion';
+  if (/公寓/.test(t)) return 'apt';
+  if (/大樓|社區/.test(t)) return 'tower';
+  return '';
+}
+function autoCat(p){
   const t = `${p.title || ''} ${p.layout || ''}`, fl = String(p.floor || '');
   if (/土地|建地|農地|素地|工業地|墓地|林地/.test(t) && !(num(p.area) > 0 && num(p.mainArea) > 0)) return 'land';
   if (/透天|別墅|樓店|店住|農舍|整棟/.test(t) || /[~～\-全]|整棟/.test(fl.split('/')[0])) return 'house';
   const floors = +((fl.match(/\/\s*(\d+)/) || [])[1] || 0);
   if (num(p.landArea) >= 15 && floors && floors <= 5 && !p.community) return 'house';
-  return 'condo';
+  if (/店面|店鋪|金店|商店/.test(t)) return 'shop';
+  if (/辦公|商辦|寫字樓/.test(t)) return 'office';
+  if (/套房/.test(t) || (/^1房/.test(p.layout || '') && num(p.area) && num(p.area) <= 20)) return 'suite';
+  if (floors >= 11) return 'tower';
+  if (floors >= 6) return 'mansion';
+  if (floors) return num(p.elevators) > 0 || /電梯/.test(t) ? 'mansion' : 'apt'; // 5 樓以下多半沒電梯＝公寓
+  return 'tower';
 }
-const LVR_CAT = {condo: '社區大樓', house: '透天', land: '土地'};
+const catOf = p => catFromLabel(p.ptype) || ({condo: 'tower'}[p.lvrCat] || p.lvrCat) || autoCat(p);
+const lvrCat = catOf;
 async function lvrFile(town, name){ return lvrRoad(town, name); }
 const landPing = r => r[22] ? r[22] * 0.3025 : null; // ㎡→坪（先用未四捨五入的坪數算單價）
 function lvrSpanPick(list, min){ // 依目前期間設定挑資料；自動模式少於 min 筆就往前拉
@@ -1698,7 +1724,7 @@ async function lvrRadius(p, cat, idx, R, run){
   if (cat === 'land') return {msg: '純土地的實價登錄只有地段地號、沒有門牌，算不出距離；請改用「同社區／同路段」範圍（土地版以同區域、同使用分區比較）。'};
   if (p.lat == null || p.lng == null) return {msg: '這間物件還沒定位，請先在地圖或帶看路線確認位置。'};
   let names; try { names = await nearRoads(p.lat, p.lng, R); } catch(e){ return {msg: '附近道路暫時查不到（Google 定位服務沒有回應或已達今日上限），請稍後再試。'}; }
-  const typeOk = cat === 'house' ? (t => /透天/.test(t)) : (t => /大樓|華廈|公寓|套房/.test(t));
+  const re = CAT_RE[cat] || /大樓|華廈/, typeOk = t => re.test(t);
   const now = rocNow(), cut = lvrSpan === 'all' ? 0 : now - (/^\d+$/.test(lvrSpan) ? +lvrSpan : 6) * 10000;
   let budget = 160; // 每間物件最多請 Google 定位幾次（查過的會存起來，不重複計費）
   const pt = async (town, road, n) => {
@@ -1738,7 +1764,7 @@ async function lvrRadius(p, cat, idx, R, run){
   if (run !== lvrRun) return {stale: true};
   found.sort((x, y) => y.r[0] - x.r[0]);
   const w = lvrSpanPick(found.map(x => x.r), 3), keep = new Set(w.list);
-  return {rows: found.filter(x => keep.has(x.r)), label: w.label, scope: `物件周遭 ${R} 公尺內的${cat === 'house' ? '透天' : '大樓／華廈'}（位置依門牌推估，約有 50–100 公尺誤差${R <= 200 ? '，100／200 公尺範圍邊界附近的成交可能多算或漏算' : ''}）`, short: budget <= 0};
+  return {rows: found.filter(x => keep.has(x.r)), label: w.label, scope: `物件周遭 ${R} 公尺內的${LVR_CAT[cat] || '大樓／華廈'}（位置依門牌推估，約有 50–100 公尺誤差${R <= 200 ? '，100／200 公尺範圍邊界附近的成交可能多算或漏算' : ''}）`, short: budget <= 0};
 }
 // 親友、員工、共有人或其他特殊關係間之交易：價格通常偏低，明確標示並排除在平均之外
 const isRel = r => /親友|員工|共有人|特殊關係|二親等|關係人間/.test(r[18] || '');
@@ -1790,7 +1816,7 @@ async function renderLvrInner(){
       out.push(`<div class="blk"><h3>${i + 1}. ${name}</h3>${body}${res.short ? '<p class="msg">附近道路很多，這次只推估了一部分，再按一次範圍按鈕可以補齊。</p>' : ''}</div>`);
       continue;
     }
-    if (cat !== 'condo'){
+    if (cat === 'house' || cat === 'land'){
       const res = await lvrLandLike(p, cat, idx);
       if (run !== lvrRun) return;
       out.push(`<div class="blk"><h3>${i + 1}. ${name}</h3>${res.msg ? `<p class="msg">${esc(res.msg)}</p>` : res.rows.length ? landTable(p, cat, res) : `<p class="msg">${esc(res.scope)}：${res.label}查無成交。</p>`}</div>`);
@@ -1802,7 +1828,7 @@ async function renderLvrInner(){
     const town = loc.town && (idx.towns[loc.town] || []).includes(loc.road) ? loc.town : Object.keys(idx.towns).find(t => idx.towns[t].includes(loc.road));
     const rows = town ? await lvrRoad(town, loc.road) : [];
     if (run !== lvrRun) return;
-    const {hit, how} = lvrMatch(p, rows, loc);
+    const {hit, how} = lvrMatch(p, rows, loc, cat);
     const {list: L, label} = lvrWindow(hit);
     if (!L.length){ out.push(`<div class="blk"><h3>${i + 1}. ${name}</h3><p class="msg">${hit.length ? `${label}沒有成交，按「全部」看更早的紀錄（共 ${hit.length} 筆）。` : `實價登錄查無這個社區的成交（${esc(how || loc.road)}）。`}</p></div>`); continue; }
     out.push(`<div class="blk"><h3>${i + 1}. ${name}</h3>${condoTable(p, L.map(r => ({road: loc.road, r})), `${how}｜${label} ${L.length} 筆`)}</div>`);
@@ -1810,12 +1836,12 @@ async function renderLvrInner(){
   if (run !== lvrRun) return;
   save();
   $('lvrList').innerHTML = out.join('');
-  $('lvrNote').innerHTML = `資料來源：內政部不動產交易實價查詢服務網 Open Data（政府資料開放授權條款），整理至 ${esc(idx.updated || '')}。社區大樓版只列有建物的交易；單價＝總價÷總坪數（含車位，和實價登錄網站相同）；扣車單價只有申報時有拆出車位價的才算得出來。紅底「特殊關係交易」＝備註為親友、員工、共有人或其他特殊關係間之交易，價格常偏低，不列入平均與總價區間；※ 為其他備註，滑鼠移上去可看內容。社區比對依門牌或樓高、完工年推定，僅供參考。透天／土地版：土地總坪數＝該筆交易土地移轉總面積（㎡）×0.3025，地坪單價＝總價÷土地總坪數；透天的地坪單價含建物價值；土地面積缺漏顯示「資料不足」、不列入平均。社區名稱：實價登錄的成屋資料沒有社區名稱，這裡用預售屋資料中同門牌的建案名稱（新建案才有），比較中物件的門牌則用信義的社區名稱，查不到顯示「—」。周遭 300／500 公尺：附近道路由 Google 反查取得，成交位置依門牌推估（每條路挑幾個門牌用 Google 定位、其餘依號碼內插），約有 50–100 公尺誤差。`;
+  $('lvrNote').innerHTML = `資料來源：內政部不動產交易實價查詢服務網 Open Data（政府資料開放授權條款），整理至 ${esc(idx.updated || '')}。依房屋類型（住宅大樓、華廈、公寓、透天、店面、辦公大樓、套房、土地，對應實價登錄的建物型態）只比同類型成交；單價＝總價÷總坪數（含車位，和實價登錄網站相同）；扣車單價只有申報時有拆出車位價的才算得出來。紅底「特殊關係交易」＝備註為親友、員工、共有人或其他特殊關係間之交易，價格常偏低，不列入平均與總價區間；※ 為其他備註，滑鼠移上去可看內容。社區比對依門牌或樓高、完工年推定，僅供參考。透天／土地版：土地總坪數＝該筆交易土地移轉總面積（㎡）×0.3025，地坪單價＝總價÷土地總坪數；透天的地坪單價含建物價值；土地面積缺漏顯示「資料不足」、不列入平均。社區名稱：實價登錄的成屋資料沒有社區名稱，這裡用預售屋資料中同門牌的建案名稱（新建案才有），比較中物件的門牌則用信義的社區名稱，查不到顯示「—」。周遭 300／500 公尺：附近道路由 Google 反查取得，成交位置依門牌推估（每條路挑幾個門牌用 Google 定位、其餘依號碼內插），約有 50–100 公尺誤差。`;
 }
 $('lvrSec').addEventListener('change', e => {
   const c = e.target.closest('[data-lvrcat]'); if (!c) return;
   const p = props.find(q => q.id === c.dataset.lvrcat); if (!p) return;
-  p.lvrCat = c.value; save(); renderLvr();
+  p.ptype = LVR_CAT[c.value]; delete p.lvrCat; save(); render(); renderLvr(); // 和比較表的「房屋類型」同步
 });
 $('lvrSec').addEventListener('change', e => {
   const z = e.target.closest('[data-lvrzone]'); if (!z) return;
